@@ -4,25 +4,23 @@ import pandas as pd
 import numpy as np
 import os
 import pickle
-import obspy
-from subprocess import call
-import json
-import datetime
 from scipy.spatial import distance_matrix
-import matplotlib.pyplot as plt
 import seisbench
-from gamma.utils import association
-import seisbench.models as sbm
-from datetime import datetime
 
 class Evaluation (object):
 
-    def __init__(self, event_picks):
+    def __init__(self, event_picks: 'pd.DataFrame')-> None:
         
+        '''
+        This class is used to evalaute the picks quality of the picker based on the ground true.
+        Parameters:
+                - event_picks (data frame): data frame of phasenet picks
+                - time_lag_threshold: time lag threshold
+        '''
         self.event_picks = event_picks
         self.time_lag_threshold = 500
 
-    def proximity_matrix (self, phase_hint:'str'):
+    def proximity_matrix (self, phase_hint:'str') -> Tuple:
         '''
         This function measure the proximity matrix of PhaseNet performance assuming that the catalog is the ground-true.
         In order to measure the proximity matrix, the following variables are using:
