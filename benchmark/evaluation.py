@@ -97,6 +97,8 @@ class Evaluation (object):
 
             # Calculate P1 norme of all datetime64[m
             dist_mat = distance_matrix(a,b, p=1)
+
+            ##
             dists = np.min(dist_mat, axis=1)
 
             all = all + catalog_filter_station.shape[0]
