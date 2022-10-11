@@ -1,0 +1,1 @@
+network_code,ID,earthquake_distance_km,snr_db,trace_name,trace_category,trace_start_time,source_magnitude,p_arrival_sample,p_status,p_weight,s_arrival_sample,s_status,s_weight,receiver_type,number_of_detections,detection_probability,detection_uncertainty,P_pick,P_probability,P_uncertainty,P_error,S_pick,S_probability,S_uncertainty,S_error
