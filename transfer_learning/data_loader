@@ -1,0 +1,49 @@
+import seisbench.data as sbd
+import seisbench.generate as sbg
+from seisbench.util import worker_seeding
+import numpy as np
+from torch.utils.data import DataLoader
+
+
+def loader(BATCHSIZE, NUM_WORKERS):
+
+    data = sbd.Iquique(sampling_rate=100)
+    train, dev, test = data.train_dev_test()
+    
+    generator = sbg.GenericGenerator(data)
+
+    @generator.augmentation
+    def print_state_dict(state_dict):
+        print(state_dict)
+
+    phase_dict = {
+        "trace_P_arrival_sample": "P",
+        "trace_S_arrival_sample": "S",
+    }
+
+    train_generator = sbg.GenericGenerator(train)
+    dev_generator = sbg.GenericGenerator(dev)
+    test_generator = sbg.GenericGenerator(test)
+
+    augmentations = [
+        sbg.WindowAroundSample(list(phase_dict.keys()), samples_before=3000, windowlen=4000, selection="random", strategy="variable"),
+        sbg.RandomWindow(windowlen=3001, strategy="pad"),
+        sbg.Normalize(demean_axis=-1, amp_norm_axis=-1, amp_norm_type="std"),
+        sbg.ChangeDtype(np.float32),
+        sbg.ProbabilisticLabeller(label_columns=phase_dict, sigma=40, dim=0),
+        #sbg.ChannelDropout(),
+        #sbg.GaussianNoise(scale=(0, 0.08)),
+        #sbg.AddGap(),
+        #sbg.RandomArrayRotation()
+    ]
+
+    train_generator.add_augmentations(augmentations)
+    dev_generator.add_augmentations(augmentations)
+    test_generator.add_augmentations(augmentations)
+
+    train_loader = DataLoader(train_generator, batch_size=BATCHSIZE, shuffle=True, num_workers=NUM_WORKERS, worker_init_fn=worker_seeding)
+    dev_loader = DataLoader(dev_generator, batch_size =BATCHSIZE, shuffle=False, num_workers=NUM_WORKERS, worker_init_fn=worker_seeding)
+    test_loader = DataLoader(test_generator, batch_size=BATCHSIZE, shuffle=False, num_workers=NUM_WORKERS, worker_init_fn=worker_seeding)
+
+    return train_loader, dev_loader, test_loader
+

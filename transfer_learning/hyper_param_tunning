@@ -1,0 +1,239 @@
+import os
+
+import optuna
+from optuna.trial import TrialState
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import torch.utils.data
+from torchvision import datasets
+from torchvision import transforms
+
+import seisbench.data as sbd
+import seisbench.generate as sbg
+import seisbench.models as sbm
+from seisbench.util import worker_seeding
+import numpy as np
+from torch.utils.data import DataLoader
+from obspy.clients.fdsn import Client
+from torchsummary import summary
+import pandas as pd
+from collections import Counter
+
+
+DEVICE = torch.device("cuda")
+#BATCHSIZE = 256
+EPOCHS = 10
+NUM_WORKERS = 8
+
+def remove_softmax(model):
+    for child_name, child in model.named_children():
+        if isinstance(child, nn.Softmax):
+            setattr(model, child_name, nn.Identity())
+        else:
+            remove_softmax(child)
+
+
+def data_loader(BATCHSIZE):
+
+    data = sbd.Iquique(sampling_rate=100)
+    train, dev, test = data.train_dev_test()
+    
+    generator = sbg.GenericGenerator(data)
+
+    @generator.augmentation
+    def print_state_dict(state_dict):
+        print(state_dict)
+
+    phase_dict = {
+        "trace_P_arrival_sample": "P",
+        "trace_S_arrival_sample": "S",
+    }
+
+    train_generator = sbg.GenericGenerator(train)
+    dev_generator = sbg.GenericGenerator(dev)
+    test_generator = sbg.GenericGenerator(test)
+
+    augmentations = [
+        sbg.WindowAroundSample(list(phase_dict.keys()), samples_before=3000, windowlen=4000, selection="random", strategy="variable"),
+        sbg.RandomWindow(windowlen=3001, strategy="pad"),
+        sbg.Normalize(demean_axis=-1, amp_norm_axis=-1, amp_norm_type="std"),
+        sbg.ChangeDtype(np.float32),
+        sbg.ProbabilisticLabeller(label_columns=phase_dict, sigma=40, dim=0),
+        #sbg.ChannelDropout(),
+        #sbg.GaussianNoise(scale=(0, 0.08)),
+        #sbg.AddGap(),
+        #sbg.RandomArrayRotation()
+    ]
+
+    train_generator.add_augmentations(augmentations)
+    dev_generator.add_augmentations(augmentations)
+    test_generator.add_augmentations(augmentations)
+
+    train_loader = DataLoader(train_generator, batch_size=BATCHSIZE, shuffle=True, num_workers=NUM_WORKERS, worker_init_fn=worker_seeding)
+    dev_loader = DataLoader(dev_generator, batch_size =BATCHSIZE, shuffle=False, num_workers=NUM_WORKERS, worker_init_fn=worker_seeding)
+    test_loader = DataLoader(test_generator, batch_size=BATCHSIZE, shuffle=False, num_workers=NUM_WORKERS, worker_init_fn=worker_seeding)
+
+    return train_loader, dev_loader, test_loader
+
+
+class DiceLoss(nn.Module):
+    def __init__(self, weight=None, size_average=True):
+        super(DiceLoss, self).__init__()
+
+    def forward(self, input, target, smooth=1):
+        
+        """
+        input is a torch variable of size BatchxnclassesxHxW representing log probabilities for each class
+        target is a 1-hot representation of the groundtruth, shoud have same size as the input
+        """
+        assert input.size() == target.size(), "Input sizes must be equal."
+        assert input.dim() == 4, "Input must be a 4D Tensor."
+        uniques=np.unique(target.cpu().numpy())
+        assert set(list(uniques))<=set([0,1]), "target must only contain zeros and ones"
+
+        probs=F.softmax(input,dim=1)
+
+        num=probs*target#b,c,h,w--p*g
+        num=torch.sum(num,dim=3)#b,c,h
+        num=torch.sum(num,dim=2)
+        
+
+        den1=probs*probs#--p^2
+        den1=torch.sum(den1,dim=3)#b,c,h
+        den1=torch.sum(den1,dim=2)
+        
+
+        den2=target*target#--g^2
+        den2=torch.sum(den2,dim=3)#b,c,h
+        den2=torch.sum(den2,dim=2)#b,c
+        
+
+        dice=2*(num/(den1+den2))
+        dice_eso=dice[:,1:]#we ignore bg dice val, and take the fg
+
+        #dice_total=-1*torch.sum(dice_eso)/dice_eso.size(0)#divide by batch_sz
+        dice_total = 1-torch.sum(dice_eso)/dice_eso.size(0)
+        return dice_total
+
+def check_accuracy(loader, model,device='cuda'):
+    correct_true_p = 0
+    target_true_p = 0
+    predicted_true_p = 0
+
+    correct_true_s = 0
+    target_true_s = 0
+    predicted_true_s = 0
+    
+    model.eval()
+
+    with torch.no_grad():
+        for batch in loader:
+            X = batch['X'].to(device)
+            y = batch['y'].to(device)
+            idx = torch.argmax(y, dim=1, keepdims=True)
+            Y = torch.zeros_like(y).scatter_(1, idx, 1.)
+
+            pred = torch.nn.functional.softmax(model(X), dim=1)
+            idx_ = torch.argmax(pred, dim=1, keepdims=True)
+            pred = torch.zeros_like(pred).scatter_(1, idx_, 1.)
+            
+            correct_true_p += (pred[:,0,:] * Y[:,0,:]).sum()
+            target_true_p += (Y[:,0,:]).sum()
+            predicted_true_p += (pred[:,0,:]).sum()
+
+            correct_true_s += (pred[:,1,:] * Y[:,1,:]).sum()
+            target_true_s += (Y[:,1,:]).sum()
+            predicted_true_s += (pred[:,1,:]).sum()
+    
+    recall_p = correct_true_p/target_true_p
+    recall_s = correct_true_s/target_true_s
+    precision_p = correct_true_p/predicted_true_p
+    precision_s = correct_true_s/predicted_true_s
+
+    f1_score_p = 2 * precision_p * recall_p/ (precision_p + recall_p)
+    f1_score_s = 2 * precision_s * recall_s/ (precision_s + recall_s)
+
+    return f1_score_p, f1_score_s
+
+
+def objective(trial):
+
+    # Generate the model.
+    model_name = trial.suggest_categorical("model_name", ["instance"])
+    model = sbm.PhaseNet.from_pretrained(model_name).to(DEVICE)
+    remove_softmax(model)
+
+    # Generate the optimizers.
+    optimizer_name = trial.suggest_categorical("optimizer", ["Adam", "Adamax","AdamW"])
+    lr = trial.suggest_float("lr", 1e-5, 1e-1, log=True)
+    optimizer = getattr(optim, optimizer_name)(model.parameters(), lr=lr)
+    #dic_criterion = DiceLoss()
+
+    weight_p = trial.suggest_float("weight_p", 0.3, 10)
+    weight_s = trial.suggest_float("weight_s", 0.3, 10)
+    weight_n = trial.suggest_float("weight_n", 0.3, 10)
+    criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor([weight_p, weight_s, weight_n]).to(model.device))
+
+    BATCHSIZE = trial.suggest_int("BATCHSIZE", 128, 512, step=64)
+    train_loader, dev_loader, test_loader= data_loader(BATCHSIZE)
+
+    # Training of the model.
+    for epoch in range(EPOCHS):
+        model.train()
+        
+        for batch_id, batch in enumerate(train_loader):
+
+            # Compute prediction and loss        
+            pred = model(batch["X"].to(model.device))
+            idx = torch.argmax(batch["y"], dim=1, keepdims=True)
+            batch["y"] = torch.zeros_like(batch["y"]).scatter_(1, idx, 1.)
+            #loss= dic_criterion(pred.reshape(len(batch["X"]),3,3001,1).float(), batch["y"].reshape(len(batch["X"]),3,3001,1).to(model.device).float())
+
+            los= criterion(pred.float(), batch["y"].to(model.device).float())
+            gamma = 2
+            pt = torch.exp(-los)
+            loss = ((1 - pt) ** gamma *los).mean()
+
+            # Backpropagation
+            optimizer.zero_grad()
+            loss.backward()
+            #scheduler.step()
+            optimizer.step()
+
+        # Validation of the model.
+        f1_score_p, f1_score_s = check_accuracy(train_loader, model,device='cuda')
+
+
+        trial.report(f1_score_s, epoch)
+        
+
+
+        # Handle pruning based on the intermediate value.
+        if trial.should_prune():
+            raise optuna.exceptions.TrialPruned()
+
+    return f1_score_s
+
+
+if __name__ == "__main__":
+    study = optuna.create_study(direction="maximize")
+    study.optimize(objective, n_trials=100, timeout=600)
+
+    pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
+    complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
+
+    print("Study statistics: ")
+    print("  Number of finished trials: ", len(study.trials))
+    print("  Number of pruned trials: ", len(pruned_trials))
+    print("  Number of complete trials: ", len(complete_trials))
+
+    print("Best trial:")
+    trial = study.best_trial
+
+    print("  Value: ", trial.value)
+
+    print("  Params: ")
+    for key, value in trial.params.items():
+        print("    {}: {}".format(key, value))
