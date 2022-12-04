@@ -1,0 +1,10 @@
+Creat_datasets/
+model_checkpoint/
+runs/
+test_tester_outputs/
+test_trainer_outputs/
+pick-benchmark/
+training_phasenet_tensorboard.ipynb
+Creat_datasets/day1/waveforms_day1.hdf5
+Creat_datasets/day1/metadata_day1.csv
+Creat_datasets/day1/creat dataset.ipynb
