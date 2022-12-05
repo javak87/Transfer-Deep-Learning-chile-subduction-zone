@@ -7,6 +7,7 @@ import torch.optim as optim
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+import torch.nn.functional as F
 import optuna
 from optuna.trial import TrialState
 import torch.nn as nn
@@ -88,7 +89,8 @@ class Phasenet_Transfer_Learning(object):
 
         optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
         weights = torch.FloatTensor(self.loss_weight).to(self.device)
-        criterion = nn.CrossEntropyLoss(weight=weights)
+        #criterion = nn.CrossEntropyLoss(weight=weights)
+        criterion = SoftCrossEntropy()
 
         for t in range(self.epoch):
             print(f"Epoch {t+1}\n +++++++++++++++++++++++++++++")
@@ -308,6 +310,19 @@ class Phasenet_Transfer_Learning(object):
             writer.add_scalar('S f1_score', f1_score_s, global_step=current_epo)
         return f1_score_p, f1_score_s
 
+class SoftCrossEntropy(nn.Module):
+
+    def __init__(self, weight=None):
+        super(SoftCrossEntropy, self).__init__() 
+
+    def forward(y_pred, y_true, eps=1e-5):
+        # vector cross entropy loss
+        y_pred = F.softmax(y_pred, dim = 1)
+        h = y_true * torch.log(y_pred + eps)
+        h = h.mean(-1).sum(-1)  # Mean along sample dimension and sum along pick dimension
+        h = h.mean()  # Mean over batch axis
+        return -h
+
 class Parameters_Tuning (object):
 
     '''
@@ -397,13 +412,6 @@ class Parameters_Tuning (object):
         return f1_score_s
 
 if __name__ == '__main__':
-
-    seed =56
-    torch.backends.cudnn.deterministic= True
-    torch.backends.cudnn.benchmark= False
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
 
     base_path ='/home/javak/.seisbench/datasets/iquique'
     base_model = 'instance'
