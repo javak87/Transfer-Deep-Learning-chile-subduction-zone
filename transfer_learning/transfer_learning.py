@@ -1,20 +1,27 @@
-from matplotlib.dates import epoch2num
+import os
+
+import numpy as np
+import obspy
+import optuna
+import pandas as pd
 import seisbench.data as sbd
 import seisbench.generate as sbg
 import seisbench.models as sbm
-from seisbench.util import worker_seeding
-import torch.optim as optim
-import numpy as np
-import matplotlib.pyplot as plt
 import torch
-import torch.nn.functional as F
-import optuna
-from optuna.trial import TrialState
 import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from matplotlib.dates import epoch2num
+from optuna.trial import TrialState
+from seisbench.util import worker_seeding
 from torch.utils.data import DataLoader
-from torchsummary import summary
 from torch.utils.tensorboard import SummaryWriter
-#writer = SummaryWriter('runs/phasenet')
+from torchsummary import summary
+
+from data_preprocessing import Data_Preprocessing
+from picks_comparison import Picks_Comparison
+
+writer = SummaryWriter('runs/phasenet')
 
 class Phasenet_Transfer_Learning(object):
 
@@ -76,8 +83,6 @@ class Phasenet_Transfer_Learning(object):
         # Load the pre-tarined model 
         model = self.load_model()
 
-        # See the summary of network
-        summary(model, (3, 3001))
         
         # Because cross entropy loss will be utilized as loss function, 
         # softmax is used inside of cross entropy loss, softmax should remove in this step.
@@ -89,22 +94,29 @@ class Phasenet_Transfer_Learning(object):
 
         optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
         weights = torch.FloatTensor(self.loss_weight).to(self.device)
+        weights  = weights.reshape(1,3,1)
         #criterion = nn.CrossEntropyLoss(weight=weights)
-        criterion = SoftCrossEntropy()
+        #criterion = SoftCrossEntropyLoss(weight=weights)
+        criterion = SoftCrossEntropyLossMean(weight=weights)
 
         for t in range(self.epoch):
             print(f"Epoch {t+1}\n +++++++++++++++++++++++++++++")
             self.train_loop(model, train_loader, t, optimizer, criterion)
-
             print('------- training performance -------')
             _,_ = self.check_accuracy(train_loader, model, t)
             model.eval()
             
             print('------- Test performance -------')
-            self.test_loop(model, test_loader, criterion)
+            self.test_loop(model, test_loader,t, criterion)
             _,_ = self.check_accuracy(test_loader, model, t)
 
-        #writer.close()
+            # save check_point
+            if t % 5 == 0:
+                #checkpoint = {'state_dict': model.state_dict()}
+
+                self.save_checkpoint(model)
+
+        writer.close()
 
     def load_model (self):
         '''
@@ -140,11 +152,32 @@ class Phasenet_Transfer_Learning(object):
                     - batch_size: batch size
                     - num_workers: number of workers
         '''
+        
+
         data = sbd.WaveformDataset(base_path, sampling_rate=100, cache='trace')
         data.preload_waveforms(pbar=True)
 
         # Divide data into train,dev, and test set.
-        train,dev,test = data.train_dev_test()
+        train,_,test = data.train_dev_test()
+        #train.preload_waveforms(pbar=True)
+
+        #data_iqu = sbd.WaveformDataset('/home/javak/.seisbench/datasets/iquique', sampling_rate=100, cache='trace')
+        #data_iqu.preload_waveforms(pbar=True)
+
+        # Divide data into train,dev, and test set.
+        #data_iqu.preload_waveforms(pbar=True)
+
+        #train,dev,_= data_iqu.train_dev_test()
+        #base_path_day1='/home/javak/Transfer-Deep-Learning-chile-subduction-zone/transfer_learning/Creat_datasets/day1'
+        #data_day1 = sbd.WaveformDataset(base_path_day1, sampling_rate=100, cache='trace')
+        #data_day1.preload_waveforms(pbar=True)
+        #train= data_day1.train()
+
+        #base_path_day2='/home/javak/Transfer-Deep-Learning-chile-subduction-zone/transfer_learning/Creat_datasets/day2'
+        #data_day2 = sbd.WaveformDataset(base_path_day2, sampling_rate=100, cache='trace')
+        #data_day2.preload_waveforms(pbar=True)
+        #test= data_day2.test()
+
 
         phase_dict = {
             "trace_P_arrival_sample": "P",
@@ -153,48 +186,54 @@ class Phasenet_Transfer_Learning(object):
 
         # add generator to train, dev, and test dataset
         train_generator = sbg.GenericGenerator(train)
-        dev_generator = sbg.GenericGenerator(dev)
+        #dev_generator = sbg.GenericGenerator(dev)
         test_generator = sbg.GenericGenerator(test)
 
         # Define augmentation
         augmentations = [
-            sbg.WindowAroundSample(list(phase_dict.keys()), samples_before=3000, windowlen=4000, selection="random", strategy="variable"),
+            sbg.WindowAroundSample(list(phase_dict.keys()), samples_before=3000, windowlen=6000, selection="random", strategy="variable"),
             sbg.RandomWindow(windowlen=3001, strategy="pad"),
             sbg.Normalize(demean_axis=-1, amp_norm_axis=-1, amp_norm_type="std"),
+            #sbg.Filter(N=3, Wn=torch.tensor([1.2, 6], dtype=torch.float32), btype='bandpass'),
             sbg.ChangeDtype(np.float32),
-            sbg.ProbabilisticLabeller(label_columns=phase_dict, sigma=40, dim=0),
-            #sbg.GaussianNoise(scale=(0, 0.3)),
-            #sbg.AddGap(),
+            sbg.ProbabilisticLabeller(label_columns=phase_dict, sigma=25, dim=0),
+            #sbg.GaussianNoise(scale=(0, 0.2)),
+            #sbg.ChannelDropout(),
+            #sbg.AddGap()
         ]
 
         # add defined augmetations to data 
         train_generator.add_augmentations(augmentations)
-        dev_generator.add_augmentations(augmentations)
+        #dev_generator.add_augmentations(augmentations)
         test_generator.add_augmentations(augmentations)              
 
         # define data loader
+
         train_loader = DataLoader(train_generator, batch_size=batch_size, shuffle=True, num_workers=num_workers, worker_init_fn=worker_seeding)
-        dev_loader = DataLoader(dev_generator, batch_size =batch_size, shuffle=False, num_workers=num_workers, worker_init_fn=worker_seeding)
+        #dev_loader = DataLoader(dev_generator, batch_size =batch_size, shuffle=False, num_workers=num_workers, worker_init_fn=worker_seeding)
         test_loader = DataLoader(test_generator, batch_size=batch_size, shuffle=False, num_workers=num_workers, worker_init_fn=worker_seeding)
 
-        return train_loader,dev_loader, test_loader 
+        return train_loader,_, test_loader 
     
     @staticmethod
-    def train_loop(model, dataloader, current_epo:'int', optimizer, criterion,add_scal=False, add_hist=False ):
+    def train_loop(model, dataloader, current_epo:'int', optimizer, criterion,add_scal=True, add_hist=True ):
         
 
         train_loss = 0
         size = len(dataloader.dataset)
         i = 0
+
+
+
         for batch_id, batch in enumerate(dataloader):
 
             # Compute prediction        
             pred = model(batch["X"].to(model.device))
             
             # find the the argmax of ground truth
-            idx = torch.argmax(batch["y"], dim=1, keepdims=True)
+            #idx = torch.argmax(batch["y"], dim=1, keepdims=True)
 
-            batch["y"] = torch.zeros_like(batch["y"]).scatter_(1, idx, 1.)
+            #batch["y"] = torch.zeros_like(batch["y"]).scatter_(1, idx, 1.)
 
             # compute loss function
             loss= criterion(pred.float(), batch["y"].to(model.device).float())
@@ -231,24 +270,29 @@ class Phasenet_Transfer_Learning(object):
             writer.add_histogram('model.up2.weight.grad', model.up2.weight.grad,current_epo)
 
 
-    def test_loop(self, model, dataloader, criterion):
+    def test_loop(self, model, dataloader, current_epo:'int',  criterion, add_scal=True):
         test_loss = 0
-        j=0
+        j=1
+        model.eval()
         with torch.no_grad():
             for batch in dataloader:
                 pred = model(batch["X"].to(model.device))
                 
-                idx_test = torch.argmax(batch["y"], dim=1, keepdims=True)
-                batch["y"] = torch.zeros_like(batch["y"]).scatter_(1, idx_test, 1.)
+
+                #idx_test = torch.argmax(batch["y"], dim=1, keepdims=True)
+                #batch["y"] = torch.zeros_like(batch["y"]).scatter_(1, idx_test, 1.)
 
                 test_loss += criterion(pred.float(), batch["y"].to(model.device).float())
                 j+=1
         print(f"Test avg loss: {test_loss/j:>8f} \n")
 
+        if add_scal == True:
+            writer.add_scalar('Test avg loss', test_loss/j, global_step=current_epo)
+
         return test_loss
     
     @staticmethod
-    def check_accuracy(loader, model,current_epo, add_scal = False):
+    def check_accuracy(loader, model,current_epo, add_scal = True):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         correct_true_p = 0
         target_true_p = 0
@@ -309,19 +353,83 @@ class Phasenet_Transfer_Learning(object):
             writer.add_scalar('P f1_score', f1_score_p, global_step=current_epo)
             writer.add_scalar('S f1_score', f1_score_s, global_step=current_epo)
         return f1_score_p, f1_score_s
+    
+    def save_checkpoint(self, model, file_name='transfer_learing_phasenet.pth.tar'):
+        print('==> saving check_point')
+        torch.save(model.state_dict(), file_name)
 
-class SoftCrossEntropy(nn.Module):
+class SoftCrossEntropyLoss(nn.Module):
 
-    def __init__(self, weight=None):
-        super(SoftCrossEntropy, self).__init__() 
+    def __init__(self, weight):
+        super().__init__()
+        self.weight = weight
 
-    def forward(y_pred, y_true, eps=1e-5):
+    def forward(self, y_hat, y):
+        p = F.log_softmax(y_hat, 1)
+        w_labels = self.weight*y
+        loss = -(w_labels*p).sum() / (w_labels).sum()
+        return loss
+
+class SoftCrossEntropyLossMean(nn.Module):
+
+    def __init__(self, weight):
+        super().__init__()
+        self.weight = weight
+
+    def forward(self, y_hat, y, eps=1e-5):
         # vector cross entropy loss
-        y_pred = F.softmax(y_pred, dim = 1)
-        h = y_true * torch.log(y_pred + eps)
+        p = F.log_softmax(y_hat, 1)
+        h = self.weight*y*p
+        #h = self.weight*y * torch.log(y_hat + eps)
         h = h.mean(-1).sum(-1)  # Mean along sample dimension and sum along pick dimension
-        h = h.mean()  # Mean over batch axis
-        return -h
+        loss = -h.mean()  # Mean over batch axis
+        return loss
+        
+class Annotation(object):
+    def __init__(self):
+        
+        # load model
+        model = sbm.PhaseNet.from_pretrained('instance').to(device="cuda" if torch.cuda.is_available() else "cpu")
+        checkpoint = torch.load('transfer_learing_phasenet.pth.tar')
+        model.load_state_dict(checkpoint)
+        #model = sbm.EQTransformer.from_pretrained('instance').to(device="cuda" if torch.cuda.is_available() else "cpu")
+        self.model = model
+
+    def deploy_model(self, start_year_analysis, start_day_analysis,
+                            end_year_analysis, end_day_analysis,
+                            P_th=0.33, S_th=0.33):
+
+        obj = Data_Preprocessing (start_year_analysis, start_day_analysis,
+                            end_year_analysis, end_day_analysis)
+
+                
+        stream = obj.get_waveforms_chile()
+        #stream = stream[12:15]
+        #dt = stream[0].stats.starttime
+        #stream[0].data = stream[0].data[:3001]
+        #stream[1].data = stream[1].data[:3001]
+        #stream[2].data = stream[2].data[:3001]
+        picks = self.model.classify(stream, batch_size=256, P_threshold=P_th, S_threshold=S_th, parallelism=1)
+
+        pick_df = []
+        for p in picks:
+            pick_df.append({
+                "id": p.trace_id,
+                "timestamp":p.peak_time.strftime('%Y-%m-%d %H:%M:%S.%f'),
+                "prob": p.peak_value,
+                "type": p.phase.lower()
+            })
+
+        automatic_picks = pd.DataFrame(pick_df)
+        automatic_picks.to_pickle(os.path.join('/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog', 'picker_result.pkl'))
+        PhaseNet_result_p_picks = automatic_picks[automatic_picks.type =='p']
+        PhaseNet_result_s_picks = automatic_picks[automatic_picks.type =='s']
+        PhaseNet_result_p_picks.to_pickle(os.path.join('/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog', 'PhaseNet_result_p_picks.pkl'))
+        PhaseNet_result_s_picks.to_pickle(os.path.join('/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog', 'PhaseNet_result_s_picks.pkl'))
+       
+        return automatic_picks
+
+
 
 class Parameters_Tuning (object):
 
@@ -392,7 +500,7 @@ class Parameters_Tuning (object):
         weight_n = trial.suggest_float("weight_n", self.loss_weight_range[0], self.loss_weight_range[1])
         criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor([weight_p, weight_s, weight_n]).to(model.device))
 
-        for t in range(20):
+        for t in range(50):
             print(f"Epoch {t+1}\n +++++++++++++++++++++++++++++")
             Phasenet_Transfer_Learning.train_loop(model, dev_loader, t, optimizer, criterion)
 
@@ -413,26 +521,40 @@ class Parameters_Tuning (object):
 
 if __name__ == '__main__':
 
+
+    start_year_analysis = 2012
+    start_day_analysis = 182
+    end_year_analysis = 2012
+    end_day_analysis = 182
+
+    #obj = Annotation()
+    #obj.deploy_model(start_year_analysis, start_day_analysis, end_year_analysis, end_day_analysis)
+    
+    
+    #base_path ='/home/javak/Transfer-Deep-Learning-chile-subduction-zone/transfer_learning/Creat_datasets/day1'
     base_path ='/home/javak/.seisbench/datasets/iquique'
     base_model = 'instance'
-    loss_weight = [9.54, 9.3, 8.8]
-    lr = 0.001
+    loss_weight = [2.22, 4.28, 3.4]
+    lr = 0.0013
     batch_size = 256
     num_workers = 10
-    epoch =5
+    epoch = 50
     
     phasenet_obj = Phasenet_Transfer_Learning(base_path, base_model,
                             loss_weight,
                             lr,
                             batch_size, num_workers, 
                             epoch, 
-                            add_scal=False, add_hist=False)
+                            add_scal=True, add_hist=True)
 
 
     phasenet_obj()
-
+    
+    
     #base_model_list = ['instance', 'stead']
     #loss_weight_range = [2,10]
     #batch_size_list = [128, 512]
     #tun_obj = Parameters_Tuning (base_path, base_model_list, loss_weight_range, batch_size_list)
     #tun_obj()
+    
+    
