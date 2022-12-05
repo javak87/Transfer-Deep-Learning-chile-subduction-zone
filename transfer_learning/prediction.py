@@ -29,7 +29,7 @@ class Data_Augmentation(object):
         self.end_day_analysis = end_day_analysis
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    def __call__ (self, p_th=0.33, s_th=0.33):
+    def __call__ (self, p_th=0.1, s_th=0.6):
 
         DF_selected_chile_path_file, DF_auxiliary_path_file = self.waveforme_data_frame()
         
@@ -58,8 +58,9 @@ class Data_Augmentation(object):
                     df = pd.concat([df, new_frame_s])
                             
             df.to_csv('/home/javak/Transfer-Deep-Learning-chile-subduction-zone/transfer_learning/df.csv')
+            nnn
     def extract_central_pick(self, index):
-        if index.reshape(1,-1).shape[1]>10:
+        if index.reshape(1,-1).shape[1]>23:
             num_array = np.zeros((index.shape[0]-1,2))
             index = index.cpu().detach().numpy()
             num_array[:,0] = np.diff(index)
@@ -67,7 +68,7 @@ class Data_Augmentation(object):
             split = np.where(num_array[:,0]!=1)[0].tolist()
             if len(split) !=0:
                 group = np.split(num_array, split, axis=0)
-                index = np.floor([np.median(sample[1:][:,1]) for sample in group if sample.shape[0]>5]).astype(int).tolist()
+                index = np.floor([np.median(sample[1:][:,1]) for sample in group if sample.shape[0]>20]).astype(int).tolist()
             else:
                 index = [np.floor(np.median(index)).astype(int)]
         else:
