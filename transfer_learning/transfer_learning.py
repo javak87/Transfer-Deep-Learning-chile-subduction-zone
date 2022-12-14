@@ -91,11 +91,12 @@ class Phasenet_Transfer_Learning(object):
 
         # divide data into train, validation,and test set.
         train_loader,_, test_loader = self.data_loader(self.base_path, self.batch_size, self.num_workers)
-
+        
         optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
         weights = torch.FloatTensor(self.loss_weight).to(self.device)
         weights  = weights.reshape(1,3,1)
         #criterion = nn.CrossEntropyLoss(weight=weights)
+        #criterion = SoftCrossEntropyLoss(weight=weights)
         #criterion = SoftCrossEntropyLoss(weight=weights)
         criterion = SoftCrossEntropyLossMean(weight=weights)
 
@@ -156,9 +157,10 @@ class Phasenet_Transfer_Learning(object):
 
         data = sbd.WaveformDataset(base_path, sampling_rate=100, cache='trace')
         data.preload_waveforms(pbar=True)
-
+        
         # Divide data into train,dev, and test set.
         train,_,test = data.train_dev_test()
+        
         #train.preload_waveforms(pbar=True)
 
         #data_iqu = sbd.WaveformDataset('/home/javak/.seisbench/datasets/iquique', sampling_rate=100, cache='trace')
@@ -206,13 +208,12 @@ class Phasenet_Transfer_Learning(object):
         train_generator.add_augmentations(augmentations)
         #dev_generator.add_augmentations(augmentations)
         test_generator.add_augmentations(augmentations)              
-
         # define data loader
 
-        train_loader = DataLoader(train_generator, batch_size=batch_size, shuffle=True, num_workers=num_workers, worker_init_fn=worker_seeding)
-        #dev_loader = DataLoader(dev_generator, batch_size =batch_size, shuffle=False, num_workers=num_workers, worker_init_fn=worker_seeding)
-        test_loader = DataLoader(test_generator, batch_size=batch_size, shuffle=False, num_workers=num_workers, worker_init_fn=worker_seeding)
-
+        train_loader = DataLoader(train_generator, batch_size=batch_size, shuffle=True, num_workers=num_workers,pin_memory=True, worker_init_fn=worker_seeding)
+        #dev_loader = DataLoader(dev_generator, batch_size =batch_size, shuffle=False, num_workers=num_workers,pin_memory=True, worker_init_fn=worker_seeding)
+        test_loader = DataLoader(test_generator, batch_size=batch_size, shuffle=False, num_workers=num_workers,pin_memory=True, worker_init_fn=worker_seeding)
+        
         return train_loader,_, test_loader 
     
     @staticmethod
@@ -378,7 +379,7 @@ class SoftCrossEntropyLossMean(nn.Module):
 
     def forward(self, y_hat, y, eps=1e-5):
         # vector cross entropy loss
-        p = F.log_softmax(y_hat, 1)
+        p = F.log_softmax(y_hat, dim=1)
         h = self.weight*y*p
         #h = self.weight*y * torch.log(y_hat + eps)
         h = h.mean(-1).sum(-1)  # Mean along sample dimension and sum along pick dimension
@@ -532,13 +533,13 @@ if __name__ == '__main__':
     
     
     #base_path ='/home/javak/Transfer-Deep-Learning-chile-subduction-zone/transfer_learning/Creat_datasets/day1'
-    base_path ='/home/javak/.seisbench/datasets/iquique'
+    base_path ='/home/javak/Transfer-Deep-Learning-chile-subduction-zone/transfer_learning'
     base_model = 'instance'
     loss_weight = [2.22, 4.28, 3.4]
     lr = 0.0013
     batch_size = 256
-    num_workers = 10
-    epoch = 50
+    num_workers = 4
+    epoch = 100
     
     phasenet_obj = Phasenet_Transfer_Learning(base_path, base_model,
                             loss_weight,
