@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import pickle
 import os
+import numpy as np
 
 
 class Data_Downloder (object):
@@ -55,7 +56,11 @@ class Data_Downloder (object):
         #    split = "dev"
         #else:
         #    split = "test"
-        split = 'train'
+        elements = ["train", "test", "dev"]
+        probabilities = [0.8, 0.1, 0.1]    
+
+        split = np.random.choice(elements, p=probabilities)
+        
         event_params["split"] = split
         
         return event_params
