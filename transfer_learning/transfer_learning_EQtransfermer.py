@@ -1,5 +1,7 @@
 import os
-
+import argparse
+import json
+import logging
 import matplotlib.pyplot as plt
 import numpy as np
 import obspy
@@ -11,6 +13,7 @@ import seisbench.models as sbm
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 from matplotlib.dates import epoch2num
 from optuna.trial import TrialState
 from seisbench.util import worker_seeding
@@ -32,10 +35,13 @@ class EQTransformer_Transfer_Learning(object):
 
     https://www.nature.com/articles/s41467-020-17591-w
     '''
+    # Phase dict for labelling. We only study P and S phases without differentiating between them.
+    phase_dict = {
+        "trace_P_arrival_sample": "P",
+        "trace_S_arrival_sample": "S",
+    }
 
-    def __init__ (self, base_path:'str', base_model:'str', loss_weight:'list', lr:'float', 
-                    batch_size:'int', num_workers:'int', 
-                    epoch:'int', add_scal=True, add_hist=True):
+    def __init__ (self, config:'json'):
 
                     '''
                     Parameters initialization:
@@ -62,14 +68,7 @@ class EQTransformer_Transfer_Learning(object):
                                 If add_scal== True, phasenet weights during learning.
                                     will be shown in the EQ_Trasfermer/run folder. The created file can be opened using tensorborad.
                     '''
-
-                    self.base_model = base_model
-                    self.base_path = base_path
-                    self.loss_weight = loss_weight
-                    self.lr = lr
-                    self.batch_size=batch_size
-                    self.num_workers=num_workers
-                    self.epoch=epoch
+                    self.config = config
 
                     # Switch device to GPU if GPU avialable. 
                     self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -84,31 +83,58 @@ class EQTransformer_Transfer_Learning(object):
         # Load the pre-tarined model 
         model = self.load_model()
 
+        # load data into memory
+        data = self.loading_data_into_mem()
         
-        # Because cross entropy loss will be utilized as loss function, 
-        # softmax is used inside of cross entropy loss, softmax should remove in this step.
+        # split data into train, dev, and test
+        train,dev,test= EQTransformer_Transfer_Learning.data_spliter(data)
 
-        #self.remove_softmax(model)
+        # create train generator
+        train_generator= EQTransformer_Transfer_Learning.data_generator(train)
 
-        # divide data into train, validation,and test set.
-        train_loader,_, test_loader = self.data_loader(self.base_path, self.batch_size, self.num_workers)
+        # create dev generator
+        #dev_generator= EQTransformer_Transfer_Learning.data_generator(dev)
 
-        optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
-        #weights = torch.FloatTensor(self.loss_weight).to(self.device)
-        #criterion = nn.CrossEntropyLoss(weight=weights)
-        criterion = nn.BCELoss()
+        # create test generator
+        test_generator= EQTransformer_Transfer_Learning.data_generator(test)
 
-        for t in range(self.epoch):
+        # add augmentation to train data
+        train_augmentations = self.get_train_augmentations()
+        #train_augmentations = self.test_augmentations()
+
+        # add augmentation to dev data
+        #dev_augmentations = self.get_train_augmentations()
+
+        # add augmentation to test data
+        test_augmentations = self.get_test_augmentations()
+
+        # add defined augmetations to data 
+        train_generator.add_augmentations(train_augmentations)
+        #dev_generator.add_augmentations(dev_augmentations)
+        test_generator.add_augmentations(test_augmentations)
+
+
+        train_loader = DataLoader(train_generator, batch_size=self.config["trainer_args"]["batch_size"], shuffle=True, num_workers=self.config["trainer_args"]["num_workers"], worker_init_fn=worker_seeding)
+        #dev_loader = DataLoader(dev_generator, batch_size =self.config["trainer_args"]["batch_size"], shuffle=False, num_workers=self.config["trainer_args"]["num_workers"], worker_init_fn=worker_seeding)
+        test_loader = DataLoader(test_generator, batch_size=self.config["trainer_args"]["batch_size"], shuffle=False, num_workers=self.config["trainer_args"]["num_workers"], worker_init_fn=worker_seeding)
+
+        optimizer = torch.optim.Adam(model.parameters(), lr=self.config["model_args"]["lr"])
+        #criterion = SoftCrossEntropyLossMean()        
+        #criterion = SoftCrossEntropyLoss()  
+        #criterion= nn.CrossEntropyLoss()
+        criterion=nn.BCELoss()
+
+        for t in range(self.config["trainer_args"]["epochs"]):
             print(f"Epoch {t+1}\n +++++++++++++++++++++++++++++")
             model.train()
-            self.train_loop(model, train_loader, t, optimizer, criterion)
+            EQTransformer_Transfer_Learning.train_loop(config, model, train_loader, t, optimizer, criterion)
             print('------- training performance -------')
-            _,_ = self.check_accuracy(train_loader, model, t)
+            _,_,_ = self.check_accuracy(train_loader, model, t)
             model.eval()
             
             print('------- Test performance -------')
             self.test_loop(model, test_loader,t, criterion)
-            _,_ = self.check_accuracy(test_loader, model, t)
+            _,_,_ = self.check_accuracy(test_loader, model, t)
 
             # save check_point
             if t % 5 == 0:
@@ -121,101 +147,239 @@ class EQTransformer_Transfer_Learning(object):
         '''
         Load the pre-trained EQTransformer based on the given base_model name.
         '''
-        model = sbm.EQTransformer.from_pretrained(self.base_model).to(device=self.device)
+        base_model = self.config["model_args"]["base_model"]
+        model = sbm.EQTransformer.from_pretrained(base_model).to(device=self.device)
     
         return model
-    
-    @staticmethod
-    def remove_softmax(model):
-        '''
-        This function find the softmax activation function and replaced by Identity.
-        By using this function softmax activation function removed from the last layer.
-        Parameter:
-                    - model: pre-trained model
-        '''
 
-        for child_name, child in model.named_children():
-            if isinstance(child, nn.Softmax):
-                setattr(model, child_name, nn.Identity())
-            else:
-                Phasenet_Transfer_Learning.remove_softmax(child)
+    def loading_data_into_mem (self):
 
-    @staticmethod
-    def data_loader (base_path:'str', batch_size:'int', num_workers:'int'):
-
-        '''
-        This function used to load waveform into memory.
-        Parameter:
-                    - base_path: the path of training data.
-                                This directory must contain 'metadata.csv' and 'waveform.hdf5'.
-                    - batch_size: batch size
-                    - num_workers: number of workers
-        '''
-        
-
+        base_path =self.config["base_path"]
         data = sbd.WaveformDataset(base_path, sampling_rate=100, cache='trace')
         data.preload_waveforms(pbar=True)
+        return data 
+    
 
-        # Divide data into train,dev, and test set.
+    @staticmethod
+    def data_spliter (data):
+       
         train,dev,test = data.train_dev_test()
-        #train.preload_waveforms(pbar=True)
+        
+        return train,dev,test
 
-        #data_iqu = sbd.WaveformDataset('/home/javak/.seisbench/datasets/iquique', sampling_rate=100, cache='trace')
-        #data_iqu.preload_waveforms(pbar=True)
-
-        # Divide data into train,dev, and test set.
-        #data_iqu.preload_waveforms(pbar=True)
-
-        #train,dev,_= data_iqu.train_dev_test()
-        #base_path_day1='/home/javak/Transfer-Deep-Learning-chile-subduction-zone/transfer_learning/Creat_datasets/day1'
-        #data_day1 = sbd.WaveformDataset(base_path_day1, sampling_rate=100, cache='trace')
-        #data_day1.preload_waveforms(pbar=True)
-        #train= data_day1.train()
-
-        #base_path_day2='/home/javak/Transfer-Deep-Learning-chile-subduction-zone/transfer_learning/Creat_datasets/day2'
-        #data_day2 = sbd.WaveformDataset(base_path_day2, sampling_rate=100, cache='trace')
-        #data_day2.preload_waveforms(pbar=True)
-        #test= data_day2.test()
+    @staticmethod
+    def data_generator(data_split):
+        return sbg.GenericGenerator(data_split)
 
 
-        phase_dict = {
-            "trace_P_arrival_sample": "P",
-            "trace_S_arrival_sample": "S",
-        }
+    def get_base_augmentations(self):
 
-        # add generator to train, dev, and test dataset
-        train_generator = sbg.GenericGenerator(train)
-        dev_generator = sbg.GenericGenerator(dev)
-        test_generator = sbg.GenericGenerator(test)
+        p_phases = [key for key, val in EQTransformer_Transfer_Learning.phase_dict.items() if val == "P"]
+        s_phases = [key for key, val in EQTransformer_Transfer_Learning.phase_dict.items() if val == "S"]
 
-        # Define augmentation
-        augmentations = [
-            sbg.WindowAroundSample(list(phase_dict.keys()), samples_before=3000, windowlen=9000, selection="random", strategy="variable"),
-            sbg.RandomWindow(windowlen=6000, strategy="pad"),
-            sbg.Normalize(demean_axis=-1, amp_norm_axis=-1, amp_norm_type="std"),
-            #sbg.Filter(N=3, Wn=torch.tensor([1.2, 6], dtype=torch.float32), btype='bandpass'),
-            sbg.ChangeDtype(np.float32),
-            sbg.ProbabilisticLabeller(label_columns=phase_dict, sigma=25, dim=0),
-            #sbg.GaussianNoise(scale=(0, 0.2)),
-            #sbg.ChannelDropout(),
-            #sbg.AddGap()
+        if self.config["augmentation"]["detection_fixed_window"] is not None:
+            detection_labeller = sbg.DetectionLabeller(
+                p_phases,
+                fixed_window=self.config["augmentation"]["detection_fixed_window"],
+                key=("X", "detections"),
+            )
+        else:
+            detection_labeller = sbg.DetectionLabeller(
+                p_phases, s_phases=s_phases, key=("X", "detections")
+            )
+
+        block1 = [
+            # In 2/3 of the cases, select windows around picks, to reduce amount of noise traces in training.
+            # Uses strategy variable, as padding will be handled by the random window.
+            # In 1/3 of the cases, just returns the original trace, to keep diversity high.
+            sbg.OneOf(
+                [
+                    sbg.WindowAroundSample(
+                        list(EQTransformer_Transfer_Learning.phase_dict.keys()),
+                        samples_before=6000,
+                        windowlen=12000,
+                        selection="random",
+                        strategy="variable",
+                    ),
+                    sbg.NullAugmentation(),
+                ],
+                probabilities=[2, 1],
+            ),
+            sbg.RandomWindow(
+                low=self.config["augmentation"]["sample_boundaries"][0],
+                high=self.config["augmentation"]["sample_boundaries"][1],
+                windowlen=6000,
+                strategy="pad",
+            ),
+            sbg.ProbabilisticLabeller(
+                label_columns=EQTransformer_Transfer_Learning.phase_dict, sigma=self.config["augmentation"]["sigma"], dim=0
+            ),
+            detection_labeller,
+            # Normalize to ensure correct augmentation behavior
+            sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1, amp_norm_type="peak"),
         ]
 
-        # add defined augmetations to data 
-        train_generator.add_augmentations(augmentations)
-        dev_generator.add_augmentations(augmentations)
-        test_generator.add_augmentations(augmentations)              
+        block2 = [
+            sbg.ChangeDtype(np.float32, "X"),
+            sbg.ChangeDtype(np.float32, "y"),
+            sbg.ChangeDtype(np.float32, "detections"),
+        ]
 
-        # define data loader
+        return block1, block2
 
-        train_loader = DataLoader(train_generator, batch_size=batch_size, shuffle=True, num_workers=num_workers, worker_init_fn=worker_seeding)
-        dev_loader = DataLoader(dev_generator, batch_size =batch_size, shuffle=False, num_workers=num_workers, worker_init_fn=worker_seeding)
-        test_loader = DataLoader(test_generator, batch_size=batch_size, shuffle=False, num_workers=num_workers, worker_init_fn=worker_seeding)
+    def get_train_augmentations(self):
 
-        return train_loader,dev_loader, test_loader 
-    
+        if self.config["augmentation"]["rotate_array"]:
+            rotation_block = [
+                sbg.OneOf(
+                    [
+                        sbg.RandomArrayRotation(["X", "y", "detections"]),
+                        sbg.NullAugmentation(),
+                    ],
+                    [0.99, 0.01],
+                )
+            ]
+        else:
+            rotation_block = []
+
+        augmentation_block = [
+            # Gaussian noise
+            sbg.OneOf([sbg.GaussianNoise(), sbg.NullAugmentation()], [0.5, 0.5]),
+            # Array rotation
+            *rotation_block,
+            # Gaps
+            sbg.OneOf([sbg.AddGap(), sbg.NullAugmentation()], [0.2, 0.8]),
+            # Channel dropout
+            sbg.OneOf([sbg.ChannelDropout(), sbg.NullAugmentation()], [0.3, 0.7]),
+            # Augmentations make second normalize necessary
+            sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1, amp_norm_type="peak"),
+        ]
+
+        block1, block2 = self.get_base_augmentations()
+
+        return block1 + augmentation_block + block2
+
+    def get_test_augmentations(self):
+
+        block1, block2 = self.get_base_augmentations()
+
+        return block1 + block2
+
+    def test_augmentations(self):
+
+        p_phases = [key for key, val in EQTransformer_Transfer_Learning.phase_dict.items() if val == "P"]
+        s_phases = [key for key, val in EQTransformer_Transfer_Learning.phase_dict.items() if val == "S"]
+
+        if self.config["augmentation"]["detection_fixed_window"] is not None:
+            detection_labeller = sbg.DetectionLabeller(
+                p_phases,
+                fixed_window=self.config["augmentation"]["detection_fixed_window"],
+                key=("X", "detections"),
+            )
+        else:
+            detection_labeller = sbg.DetectionLabeller(
+                p_phases, s_phases=s_phases, key=("X", "detections")
+            )   
+
+        augmentations = [
+            sbg.WindowAroundSample(list(EQTransformer_Transfer_Learning.phase_dict.keys()), samples_before=3000, windowlen=6000, selection="random", strategy="variable"),
+            sbg.RandomWindow(windowlen=6000, strategy="pad"),
+            sbg.Normalize(demean_axis=-1, amp_norm_axis=-1, amp_norm_type="std"),
+            sbg.ChangeDtype(np.float32),
+            sbg.ProbabilisticLabeller(label_columns=EQTransformer_Transfer_Learning.phase_dict, sigma=25, dim=0),
+            detection_labeller,
+        ]
+        return augmentations
+
+    def get_train_augmentations(self):
+
+        p_phases = [key for key, val in EQTransformer_Transfer_Learning.phase_dict.items() if val == "P"]
+        s_phases = [key for key, val in EQTransformer_Transfer_Learning.phase_dict.items() if val == "S"]
+
+        if self.config["augmentation"]["detection_fixed_window"] is not None:
+            detection_labeller = sbg.DetectionLabeller(
+                p_phases,
+                fixed_window=self.config["augmentation"]["detection_fixed_window"],
+                key=("X", "detections"),
+            )
+        else:
+            detection_labeller = sbg.DetectionLabeller(
+                p_phases, s_phases=s_phases, key=("X", "detections")
+            )
+
+
+        block1 = [
+            # In 2/3 of the cases, select windows around picks, to reduce amount of noise traces in training.
+            # Uses strategy variable, as padding will be handled by the random window.
+            # In 1/3 of the cases, just returns the original trace, to keep diversity high.
+            
+            sbg.OneOf(
+                [
+                    sbg.WindowAroundSample(
+                        list(EQTransformer_Transfer_Learning.phase_dict.keys()),
+                        samples_before=6000,
+                        windowlen=12000,
+                        selection="random",
+                        strategy="variable",
+                    ),
+                    sbg.NullAugmentation(),
+                ],
+                probabilities=[2, 1],
+            ),
+            sbg.RandomWindow(
+                low= self.config["augmentation"]["sample_boundaries"][0],
+                high=self.config["augmentation"]["sample_boundaries"][1],
+                windowlen=6000,
+                strategy="pad",
+            ),
+            sbg.ProbabilisticLabeller(
+                label_columns=EQTransformer_Transfer_Learning.phase_dict, sigma=self.config["augmentation"]["sigma"], dim=0
+            ),
+            detection_labeller,
+            # Normalize to ensure correct augmentation behavior
+            sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1, amp_norm_type="peak"),
+        ]
+
+        block2 = [
+            sbg.ChangeDtype(np.float32, "X"),
+            sbg.ChangeDtype(np.float32, "y"),
+            sbg.ChangeDtype(np.float32, "detections"),
+        ]
+
+
+        if self.config["augmentation"]["rotate_array"]:
+            rotation_block = [
+                sbg.OneOf(
+                    [
+                        sbg.RandomArrayRotation(["X", "y", "detections"]),
+                        sbg.NullAugmentation(),
+                    ],
+                    [0.99, 0.01],
+                )
+            ]
+        else:
+            rotation_block = []
+
+        augmentation_block = [
+            # Gaussian noise
+            sbg.OneOf([sbg.GaussianNoise(), sbg.NullAugmentation()], [0.5, 0.5]),
+            # Array rotation
+            *rotation_block,
+            # Gaps
+            sbg.OneOf([sbg.AddGap(), sbg.NullAugmentation()], [0.2, 0.8]),
+            # Channel dropout
+            sbg.OneOf([sbg.ChannelDropout(), sbg.NullAugmentation()], [0.3, 0.7]),
+            # Augmentations make second normalize necessary
+            sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1, amp_norm_type="peak"),
+        ]
+
+        train_augmentations = block1 + augmentation_block + block2
+
+        return train_augmentations
+
+
     @staticmethod
-    def train_loop(model, dataloader, current_epo:'int', optimizer, criterion,add_scal=True, add_hist=True ):
+    def train_loop(config, model, dataloader, current_epo:'int', optimizer, criterion,add_scal=True, add_hist=True ):
         
 
         train_loss = 0
@@ -223,24 +387,20 @@ class EQTransformer_Transfer_Learning(object):
         i = 0
 
 
-
         for batch_id, batch in enumerate(dataloader):
 
             # Compute prediction        
-            pred_eqt = model(batch["X"].to(model.device))
+            det_pred, p_pred, s_pred = model(batch["X"].to(model.device))
             
-            pred = torch.stack([pred_eqt[1], pred_eqt[2], 1-pred_eqt[0]], dim=1)
-            # find the the argmax of ground truth
-            idx = torch.argmax(batch["y"], dim=1, keepdims=True)
-
-            batch["y"] = torch.zeros_like(batch["y"]).scatter_(1, idx, 1.)
+            p_true = batch["y"][:, 0].to(model.device)
+            s_true = batch["y"][:, 1].to(model.device)
+            det_true = batch["detections"][:, 0].to(model.device)
 
             # compute loss function
-            loss_p = criterion(pred[:,0,:].float(), batch["y"][:,0,:].to(model.device).float())
-            loss_s = criterion(pred[:,1,:].float(), batch["y"][:,1,:].to(model.device).float())
-            loss_n = criterion(pred[:,2,:].float(), batch["y"][:,2,:].to(model.device).float())
-            loss = loss_p + loss_s + loss_n
-            #loss= criterion(pred.float(), batch["y"].to(model.device).float())
+            wt = torch.FloatTensor(config["trainer_args"]["loss_weight"]).to(model.device)
+            loss = wt[0]*criterion(det_pred.float(), det_true.float())
+            + wt[1]*criterion(p_pred.float(), p_true.float())
+            + wt[2]*criterion(s_pred.float(), s_true.float())
             
             # Backpropagation
             optimizer.zero_grad()
@@ -250,7 +410,7 @@ class EQTransformer_Transfer_Learning(object):
             train_loss +=  loss.item()
 
 
-            if batch_id % 10 == 0:
+            if batch_id % 5 == 0:
                 loss, current = loss.item(), batch_id * batch["X"].shape[0]
                 print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
@@ -267,17 +427,20 @@ class EQTransformer_Transfer_Learning(object):
         model.eval()
         with torch.no_grad():
             for batch in dataloader:
-                pred_eqt= model(batch["X"].to(model.device))
+
+                # Compute prediction        
+                det_pred, p_pred, s_pred = model(batch["X"].to(model.device))
                 
-                pred = torch.stack([pred_eqt[1], pred_eqt[2], 1-pred_eqt[0]], dim=1)
+                p_true = batch["y"][:, 0].to(model.device)
+                s_true = batch["y"][:, 1].to(model.device)
+                det_true = batch["detections"][:, 0].to(model.device)
 
-                idx_test = torch.argmax(batch["y"], dim=1, keepdims=True)
-                batch["y"] = torch.zeros_like(batch["y"]).scatter_(1, idx_test, 1.)
+                # compute loss function
+                wt = torch.FloatTensor(self.config["trainer_args"]["loss_weight"]).to(model.device)
+                test_loss += wt[0]*criterion(det_pred.float(), det_true.float())
+                + wt[1]*criterion(p_pred.float(), p_true.float())
+                + wt[2]*criterion(s_pred.float(), s_true.float())
 
-                loss_p = criterion(pred[:,0,:].float(), batch["y"][:,0,:].to(model.device).float())
-                loss_s = criterion(pred[:,1,:].float(), batch["y"][:,1,:].to(model.device).float())
-                loss_n = criterion(pred[:,2,:].float(), batch["y"][:,2,:].to(model.device).float())
-                test_loss += loss_p + loss_s + loss_n
                 j+=1
         print(f"Test avg loss: {test_loss/j:>8f} \n")
 
@@ -285,84 +448,180 @@ class EQTransformer_Transfer_Learning(object):
             writer.add_scalar('Test avg loss', test_loss/j, global_step=current_epo)
 
         return test_loss
-    
+
+    @staticmethod
+    def recall(y_true, y_pred):
+        'Recall metric. Only computes a batch-wise average of recall. Computes the recall, a metric for multi-label classification of how many relevant items are selected.'
+
+        true_positives = torch.sum(torch.round(torch.clamp(y_true * y_pred, 0, 1)))
+        possible_positives = torch.sum(torch.round(torch.clamp(y_true, 0, 1)))
+        recall = true_positives / (possible_positives + 1e-7)
+        return recall
+
+    @staticmethod
+    def precision(y_true, y_pred):
+        'Precision metric. Only computes a batch-wise average of precision. Computes the precision, a metric for multi-label classification of how many selected items are relevant.'
+
+        true_positives = torch.sum(torch.round(torch.clamp(y_true * y_pred, 0, 1)))
+        predicted_positives = torch.sum(torch.round(torch.clamp(y_pred, 0, 1)))
+        precision = true_positives / (predicted_positives + 1e-7)
+        return precision
+
+    @staticmethod
+    def f1(y_true, y_pred):
+        
+        """ 
+        
+        Calculate F1-score.
+        
+        Parameters
+        ----------
+        y_true : 1D array
+            Ground truth labels. 
+            
+        y_pred : 1D array
+            Predicted labels.     
+            
+        Returns
+        -------  
+        f1 : float
+            Calculated F1-score. 
+            
+        """     
+        
+        precision = EQTransformer_Transfer_Learning.precision(y_true, y_pred)
+        recall = EQTransformer_Transfer_Learning.recall(y_true, y_pred)
+        return 2*((precision*recall)/(precision+recall+1e-7))
+
     @staticmethod
     def check_accuracy(loader, model,current_epo, add_scal = True):
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        correct_true_p = 0
-        target_true_p = 0
-        predicted_true_p = 0
+        f1_score_det_batch = 0
+        f1_score_p_batch = 0
+        f1_score_s_batch = 0
 
-        correct_true_s = 0
-        target_true_s = 0
-        predicted_true_s = 0
-        
+        prec_det_batch = 0
+        prec_p_batch = 0
+        prec_s_batch = 0
+
+        recall_det_batch = 0
+        recall_p_batch = 0
+        recall_s_batch = 0
+
         model.eval()
-
+        j = 0
         with torch.no_grad():
             for batch in loader:
-                y = batch['y'].to(device)
-                idx = torch.argmax(y, dim=1, keepdims=True)
-                Y = torch.zeros_like(y).scatter_(1, idx, 1.)
 
-                #pred = torch.nn.functional.softmax(model(X), dim=1)
-                pred_eqt= model(batch['X'].to(device))
-                pred = torch.stack([pred_eqt[1], pred_eqt[2], 1-pred_eqt[0]], dim=1)
-
-                idx_ = torch.argmax(pred, dim=1, keepdims=True)
-                pred = torch.zeros_like(pred).scatter_(1, idx_, 1.)
+                # Compute prediction        
+                det_pred, p_pred, s_pred = model(batch["X"].to(model.device))
                 
-                correct_true_p += (pred[:,0,:] * Y[:,0,:]).sum()
-                target_true_p += (Y[:,0,:]).sum()
-                predicted_true_p += (pred[:,0,:]).sum()
-
-                correct_true_s += (pred[:,1,:] * Y[:,1,:]).sum()
-                target_true_s += (Y[:,1,:]).sum()
-                predicted_true_s += (pred[:,1,:]).sum()
+                p_true = batch["y"][:, 0].to(model.device)
+                s_true = batch["y"][:, 1].to(model.device)
+                det_true = batch["detections"][:, 0].to(model.device)
         
-        recall_p = correct_true_p/target_true_p
-        recall_s = correct_true_s/target_true_s
-        precision_p = correct_true_p/predicted_true_p
-        precision_s = correct_true_s/predicted_true_s
+                prec_det_batch += EQTransformer_Transfer_Learning.precision(det_true, det_pred)
+                prec_p_batch += EQTransformer_Transfer_Learning.precision(p_true, p_pred)
+                prec_s_batch += EQTransformer_Transfer_Learning.precision(s_true, s_pred)
 
-        f1_score_p = 2 * precision_p * recall_p/ (precision_p + recall_p)
-        f1_score_s = 2 * precision_s * recall_s/ (precision_s + recall_s)
+                recall_det_batch += EQTransformer_Transfer_Learning.recall(det_true, det_pred)
+                recall_p_batch += EQTransformer_Transfer_Learning.recall(p_true, p_pred)
+                recall_s_batch += EQTransformer_Transfer_Learning.recall(s_true, s_pred)
+
+                f1_score_det_batch += EQTransformer_Transfer_Learning.f1(det_true, det_pred)
+                f1_score_p_batch += EQTransformer_Transfer_Learning.f1(p_true, p_pred)
+                f1_score_s_batch += EQTransformer_Transfer_Learning.f1(s_true, s_pred)
+
+                j += 1
+        prec_det = prec_det_batch/j
+        prec_p = prec_p_batch/j
+        prec_s = prec_s_batch/j
+
+        recall_det = recall_det_batch/j
+        recall_p = recall_p_batch/j
+        recall_s = recall_s_batch/j
+
+        f1_score_det = f1_score_det_batch/j
+        f1_score_p = f1_score_p_batch/j
+        f1_score_s = f1_score_s_batch/j
+
+        print(
+            f" det f1_score: {f1_score_det*100:.3f}\n"
+            f" det precision: {prec_det*100:.3f}\n"
+            f" det recall: {recall_det*100:.3f}\n"
+        )
 
         print(
             f" P f1_score: {f1_score_p*100:.3f}\n"
+            f" P precision: {prec_p*100:.3f}\n"
             f" P recall: {recall_p*100:.3f}\n"
-            f" P precision: {precision_p*100:.3f}\n"
         )
 
         print(
             f" S f1_score: {f1_score_s*100:.3f}\n"
+            f" S precision: {prec_s*100:.3f}\n"
             f" S recall: {recall_s*100:.3f}\n"
-            f" S precision: {precision_s*100:.3f}\n"
         )
 
-        model.train()
+
+        print(
+            f" overall f1_score: {(f1_score_s+f1_score_p+f1_score_det)*33.333:.3f}\n"
+        )
 
         if add_scal == True:
-            writer.add_scalar('P picks Precision', precision_p, global_step=current_epo)
-            writer.add_scalar('S picks Precision', precision_s, global_step=current_epo)
-            writer.add_scalar('P Recall', recall_p, global_step=current_epo)
-            writer.add_scalar('S Recall', recall_s, global_step=current_epo)
-            writer.add_scalar('P f1_score', f1_score_p, global_step=current_epo)
-            writer.add_scalar('S f1_score', f1_score_s, global_step=current_epo)
-        return f1_score_p, f1_score_s
+            writer.add_scalar('det f1 score', f1_score_det, global_step=current_epo)
+            writer.add_scalar('P f1 score', f1_score_p, global_step=current_epo)
+            writer.add_scalar('S f1 score', f1_score_s, global_step=current_epo)
+            writer.add_scalar('overall f1 score', 0.333*(f1_score_s+f1_score_p+f1_score_det), global_step=current_epo)
+
+            writer.add_scalar('det precision', prec_det, global_step=current_epo)
+            writer.add_scalar('P precision', prec_p, global_step=current_epo)
+            writer.add_scalar('S precision', prec_s, global_step=current_epo)
+
+            writer.add_scalar('det recall', recall_det, global_step=current_epo)
+            writer.add_scalar('P recall', recall_p, global_step=current_epo)
+            writer.add_scalar('S recall', recall_s, global_step=current_epo)
+
+        return f1_score_det, f1_score_p, f1_score_s
     
     def save_checkpoint(self, model, file_name='transfer_learing_EQT.pth.tar'):
         print('==> saving check_point')
         torch.save(model.state_dict(), file_name)
 
+class SoftCrossEntropyLoss(nn.Module):
+   def __init__(self):
+      super().__init__()
+
+   def forward(self, y_hat, y):
+      p = F.log_softmax(y_hat, 1)
+      w_labels = y
+      loss = -(w_labels*p).sum() / (w_labels).sum()
+      return loss
+
+class SoftCrossEntropyLossMean(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, y_pred, y_true, eps=1e-7):
+    
+        h = y_true * torch.log(y_pred + eps)
+        if y_pred.ndim == 3:
+            h = h.mean(-1).sum(
+                -1
+            )  # Mean along sample dimension and sum along pick dimension
+        else:
+            h = h.sum(-1)  # Sum along pick dimension
+        h = h.mean()  # Mean over batch axis
+        return -h
     
 class Annotation(object):
     def __init__(self):
         
         # load model
         model = sbm.EQTransformer.from_pretrained('instance').to(device="cuda" if torch.cuda.is_available() else "cpu")
-        #checkpoint = torch.load('transfer_learing_EQT.pth.tar')
-        #model.load_state_dict(checkpoint)
+        checkpoint = torch.load('transfer_learing_EQT.pth.tar')
+        model.load_state_dict(checkpoint)
         self.model = model
 
     def deploy_model(self, start_year_analysis, start_day_analysis,
@@ -391,7 +650,6 @@ class Annotation(object):
         PhaseNet_result_s_picks = automatic_picks[automatic_picks.type =='s']
         PhaseNet_result_p_picks.to_pickle(os.path.join('/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog', 'PhaseNet_result_p_picks.pkl'))
         PhaseNet_result_s_picks.to_pickle(os.path.join('/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog', 'PhaseNet_result_s_picks.pkl'))
-       
         return automatic_picks
 
 
@@ -486,11 +744,24 @@ class Parameters_Tuning (object):
 
 if __name__ == '__main__':
 
+    with open('instance_eqtransformer.json', "r") as f:
+        config = json.load(f)
 
-    start_year_analysis = 2007
-    start_day_analysis = 304
-    end_year_analysis = 2007
-    end_day_analysis = 304
+    phasenet_obj = EQTransformer_Transfer_Learning(config)
+
+
+    phasenet_obj()
+    
+    start_year_analysis = 2011
+    start_day_analysis = 90
+    end_year_analysis = 2011
+    end_day_analysis = 90
+
+    
+
+    #data = sbd.ETHZ(sampling_rate=100)
+    #train, dev, test = data.train_dev_test()
+
 
     obj = Annotation()
     obj.deploy_model(start_year_analysis, start_day_analysis, end_year_analysis, end_day_analysis)
@@ -513,8 +784,8 @@ if __name__ == '__main__':
 
 
     phasenet_obj()
-
-    
+    '''
+    '''
     base_path ='/home/javak/Transfer-Deep-Learning-chile-subduction-zone/transfer_learning/Creat_datasets/day1'
 
     base_model_list = ['instance', 'original']
