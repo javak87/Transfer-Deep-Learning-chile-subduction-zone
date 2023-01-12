@@ -1,0 +1,22 @@
+{
+  "model": "EQTransformer",
+  "base_path": "/home/javak/.seisbench/datasets/iquique",
+  "visual_add_scal":"False",
+  "visual_hist":false,
+  "trainer_args": {
+    "epochs": 15,
+    "batch_size": 256,
+    "num_workers": 4,
+    "loss_weight":[0.05, 0.40, 0.55]
+  },
+  "model_args": {
+    "lr": 1e-3,
+    "base_model": "instance"
+  },
+  "augmentation":{
+    "detection_fixed_window" : null,
+    "sample_boundaries" : [null, null],
+    "rotate_array" : true,
+    "sigma" : 25
+    }
+  }
