@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 class Picks_Comparison (object):
 
     def __init__(self, start_year_analysis, start_day_analysis, 
-                    end_year_analysis, end_day_analysis, event_picks):
+                    end_year_analysis, end_day_analysis, event_picks, Ground_truth):
 
         '''
         This class uses the start_year_analysis, start_day_analysis, end_year_analysis, and end_day_analysis, 
@@ -35,11 +35,12 @@ class Picks_Comparison (object):
         self.end_year_analysis = end_year_analysis
         self.end_day_analysis = end_day_analysis
         self.event_picks = event_picks
+        self.Ground_truth = Ground_truth
         
     def __call__ (self) -> Tuple:
 
         # Filter the ground true picks
-        self.filter_picks_DF()
+        #self.filter_picks_DF()
 
         # Compute the distance of S picks
         all_dists_s = self.compare_PhaseNet_catalog_S_picks ()
@@ -59,8 +60,7 @@ class Picks_Comparison (object):
                     - catalog_DF_S_picks (dataframe): catalog S picks dataframe
             '''
         # load ground true picks
-        with open(os.path.join('{0}/{1}'.format(seisbench.cache_root,'datasets/chile/files_paths'), 'day1.pkl'),'rb') as fp:
-            DF_picks = pickle.load(fp)
+        DF_picks = self.Ground_truth
 
         # convert the Day of Year in Python to Month/Day
         start_date = datetime.datetime.strptime('{} {}'.format(self.start_day_analysis, self.start_year_analysis),'%j %Y')
@@ -73,8 +73,8 @@ class Picks_Comparison (object):
         catalog_DF_P_picks = DF_picks[(DF_picks['picks_time']>= start_date_obspy) & (DF_picks['picks_time']<=end_date_obspy) & (DF_picks['phase_hint']=='P')]
         catalog_DF_S_picks = DF_picks[(DF_picks['picks_time']>= start_date_obspy) & (DF_picks['picks_time']<=end_date_obspy) & (DF_picks['phase_hint']=='S')]
 
-        catalog_DF_P_picks.to_pickle(os.path.join('{0}/{1}'.format(seisbench.cache_root,'datasets/chile/files_paths'), 'catalog_p_picks.pkl'))
-        catalog_DF_S_picks.to_pickle(os.path.join('{0}/{1}'.format(seisbench.cache_root,'datasets/chile/files_paths'), 'catalog_s_picks.pkl'))
+        catalog_DF_P_picks.to_pickle('Ground_truth_p_picks.pkl')
+        catalog_DF_S_picks.to_pickle('Ground_truth_s_picks.pkl')
         
         #return catalog_DF_P_picks, catalog_DF_S_picks
 
@@ -88,14 +88,24 @@ class Picks_Comparison (object):
         #with open(os.path.join('{0}/{1}'.format(seisbench.cache_root,'datasets/chile/parameters_tunning'), self.file_name),'rb') as fp:
         #    pick_df = pickle.load(fp)
         pick_df = self.event_picks
-        df_P_picks = pick_df[pick_df.type == 'p']
-        with open(os.path.join('{0}/{1}'.format(seisbench.cache_root,'datasets/chile/files_paths'), 'catalog_p_picks.pkl'),'rb') as fs:
-            catalog_DF_P_picks = pickle.load(fs)
 
+        if 'phase_hint' in pick_df.columns:
+            pick_df.rename(columns={'phase_hint': 'type'}, inplace=True)
+            pick_df['type'] = pick_df['type'].str.lower()
+        
+        df_P_picks = pick_df[pick_df.type == 'p']
+        #with open('Ground_truth_p_picks','rb') as fs:
+        #    catalog_DF_P_picks = pickle.load(fs)
+
+        catalog_DF_P_picks = self.Ground_truth[self.Ground_truth.phase_hint=='P']
         # creat extra columns
-        df_P_picks[['station_code', 'others']] = df_P_picks['id'].str.split('.', 1, expand=True)
-        df_P_picks[['station_code', 'others']] = df_P_picks['others'].str.split('.', 1, expand=True)
-        df_P_picks = df_P_picks.drop(['others'], axis=1)
+        if 'id' in df_P_picks.columns:
+            df_P_picks[['station_code', 'others']] = df_P_picks['id'].str.split('.', 1, expand=True)
+            df_P_picks[['station_code', 'others']] = df_P_picks['others'].str.split('.', 1, expand=True)
+            df_P_picks = df_P_picks.drop(['others'], axis=1)
+
+        if 'timestamp' not in df_P_picks.columns:
+            df_P_picks.rename(columns={'picks_time': 'timestamp'}, inplace=True)
 
         # find common station_code in catalog and PhaseNet
         boolean_column = catalog_DF_P_picks['station_code'].isin(df_P_picks['station_code'])
@@ -152,14 +162,21 @@ class Picks_Comparison (object):
         #    pick_df = pickle.load(fp)
         pick_df = self.event_picks
 
+        if 'phase_hint' in pick_df.columns:
+            pick_df.rename(columns={'phase_hint': 'type'}, inplace=True)
+            pick_df['type'] = pick_df['type'].str.lower()
+
         df_S_picks = pick_df[pick_df.type == 's']
-        with open(os.path.join('{0}/{1}'.format(seisbench.cache_root,'datasets/chile/files_paths'), 'catalog_s_picks.pkl'),'rb') as fs:
-            catalog_DF_S_picks = pickle.load(fs)
+        catalog_DF_S_picks = self.Ground_truth[self.Ground_truth.phase_hint=='S']
 
         # creat extra columns
-        df_S_picks[['station_code', 'others']] = df_S_picks['id'].str.split('.', 1, expand=True)
-        df_S_picks[['station_code', 'others']] = df_S_picks['others'].str.split('.', 1, expand=True)
-        df_S_picks = df_S_picks.drop(['others'], axis=1)
+        if 'id' in df_S_picks.columns:
+            df_S_picks[['station_code', 'others']] = df_S_picks['id'].str.split('.', 1, expand=True)
+            df_S_picks[['station_code', 'others']] = df_S_picks['others'].str.split('.', 1, expand=True)
+            df_S_picks = df_S_picks.drop(['others'], axis=1)
+        
+        if 'timestamp' not in df_S_picks.columns:
+            df_S_picks.rename(columns={'picks_time': 'timestamp'}, inplace=True)
 
         # find common station_code in catalog and PhaseNet
         boolean_column = catalog_DF_S_picks['station_code'].isin(df_S_picks['station_code'])
@@ -205,15 +222,216 @@ class Picks_Comparison (object):
 if __name__ == "__main__":
 
 
-    start_year_analysis = 2012
-    start_day_analysis = 1
-    end_year_analysis = 2012
-    end_day_analysis = 1
 
-    obj = Picks_Comparison (start_year_analysis, 
+    start_year_analysis = 2011
+    start_day_analysis = 90
+    end_year_analysis = 2011
+    end_day_analysis = 90
+    time_lag_threshold = 500 # mi second
+
+    catalog = 'IPOC'
+    GT = 'Hand-picked'
+    title = '{0}{1}{2}{3}{4}'.format(catalog,' catalog', ' and Ground truth (',GT,') Comparison' )
+
+    if GT =='IPOC':
+
+        Ground_truth_file_path_p = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_p_picks.pkl'
+        with open(Ground_truth_file_path_p,'rb') as fp:
+            Ground_truth_p = pickle.load(fp)
+
+        Ground_truth_file_path_s = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_s_picks.pkl'
+        with open(Ground_truth_file_path_s,'rb') as fp:
+            Ground_truth_s = pickle.load(fp)
+        
+
+        Ground_truth = pd.concat([Ground_truth_p, Ground_truth_s], axis=0)
+        Ground_truth.sort_values(by=['picks_time'], inplace=True)
+
+        Ground_truth.drop(columns=['picks_uncertainty','origins_time', 'origins_longitude', 'origins_latitude','magnitudes'], errors='ignore', inplace=True)
+
+    if GT =='Hand-picked':
+        Ground_truth_file_path = '/home/javak/Sample_data_chile/Events_catalog/Manual picks/Jonas/picks_2011_090_cleaned.pkl'
+        with open(Ground_truth_file_path,'rb') as fp:
+            Ground_truth = pickle.load(fp)
+
+
+
+    if catalog =='IPOC':
+
+        catalog_file_path_p = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_p_picks.pkl'
+        with open(catalog_file_path_p,'rb') as fp:
+            catalog_p = pickle.load(fp)
+
+        catalog_file_path_s = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_s_picks.pkl'
+        with open(catalog_file_path_s,'rb') as fp:
+            catalog_s = pickle.load(fp)
+    
+
+    catalog = pd.concat([catalog_p, catalog_s], axis=0)
+    catalog.sort_values(by=['picks_time'], inplace=True)
+
+    catalog.drop(columns=['picks_uncertainty','origins_time', 'origins_longitude', 'origins_latitude','magnitudes'], errors='ignore', inplace=True)
+
+
+
+    if catalog == 'Hand-picked':
+
+        catalog_file_path = '/home/javak/Sample_data_chile/Events_catalog/Manual picks/Jonas/picks_2011_090_cleaned.pkl'
+        with open(catalog_file_path,'rb') as fp:
+            event_picks = pickle.load(fp)
+
+
+    if catalog == 'Instance-Iquique':
+
+        picker_p_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/PhaseNet_result_p_picks.pkl'
+        with open(picker_p_picks_file_path,'rb') as fp:
+            p_picks = pickle.load(fp)
+
+        picker_s_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/PhaseNet_result_s_picks.pkl'
+        with open(picker_s_picks_file_path,'rb') as fp:
+            s_picks = pickle.load(fp)
+
+        event_picks = pd.concat([p_picks,s_picks], axis=0)
+        event_picks.sort_values(by=['timestamp'], inplace=True)
+
+
+    if catalog == 'Instance':
+
+        picker_p_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQ Trasfermer based on instance/2011.90/PhaseNet_result_p_picks.pkl'
+        with open(picker_p_picks_file_path,'rb') as fp:
+            p_picks = pickle.load(fp)
+
+        picker_s_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQ Trasfermer based on instance/2011.90/PhaseNet_result_s_picks.pkl'
+        with open(picker_s_picks_file_path,'rb') as fp:
+            s_picks = pickle.load(fp)
+
+        event_picks = pd.concat([p_picks,s_picks], axis=0)
+        event_picks.sort_values(by=['timestamp'], inplace=True)
+
+    '''
+    # Loading Ground truth data
+    picker_p_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_p_picks.pkl'
+    with open(picker_p_picks_file_path,'rb') as fp:
+        picker_p_picks_file = pickle.load(fp)
+
+    picker_s_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_s_picks.pkl'
+    with open(picker_s_picks_file_path,'rb') as fp:
+        picker_s_picks_file = pickle.load(fp)
+
+
+
+    event_picks = pd.concat([picker_p_picks_file, picker_s_picks_file], axis=0)
+    event_picks.sort_values(by=['picks_time'], inplace=True)
+
+    event_picks.drop(columns=['picks_uncertainty','origins_time', 'origins_longitude', 'origins_latitude','magnitudes'], errors='ignore', inplace=True)
+    '''
+    # Loading automatics picker data
+
+    # Loading automatics picker data
+    #picker_p_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_p_picks.pkl'
+    #with open(picker_p_picks_file_path,'rb') as fp:
+    #    p_picks = pickle.load(fp)
+
+    #picker_s_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_p_picks.pkl'
+    #with open(picker_s_picks_file_path,'rb') as fp:
+    #    s_picks = pickle.load(fp)
+
+    #event_picks = pd.concat([p_picks,s_picks], axis=0)
+    #event_picks.sort_values(by=['timestamp'], inplace=True)
+    #event_picks_file_path = '/home/javak/Sample_data_chile/Events_catalog/Manual picks/Jonas/picks_2011_090_cleaned.pkl'
+    #with open(event_picks_file_path,'rb') as fp:
+    #    event_picks = pickle.load(fp)
+
+    picks_obj = Picks_Comparison (start_year_analysis, 
                     start_day_analysis,
                     end_year_analysis,
-                    end_day_analysis)
+                    end_day_analysis,event_picks, Ground_truth)
+
+    all_dists_p, all_dists_s = picks_obj()
+    '''
+    start_year_analysis = 2011
+    start_day_analysis = 90
+    end_year_analysis = 2011
+    end_day_analysis = 90
+    time_lag_threshold = 500
+
+
+    Ground_truth_file_path ='/home/javak/Sample_data_chile/Events_catalog/Manual picks/Jonas/picks_2011_090_cleaned.pkl'
+    with open(Ground_truth_file_path,'rb') as fp:
+        Ground_truth = pickle.load(fp)
     
-    dists = obj()
-    b= 1
+
+    # Loading automatics picker data
+    picker_p_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_p_picks.pkl'
+    with open(picker_p_picks_file_path,'rb') as fp:
+        p_picks = pickle.load(fp)
+
+    picker_s_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_p_picks.pkl'
+    with open(picker_s_picks_file_path,'rb') as fp:
+        s_picks = pickle.load(fp)
+
+    event_picks = pd.concat([p_picks,s_picks], axis=0)
+    event_picks.sort_values(by=['picks_time'], inplace=True)
+    
+    # Loading automatics picker data
+    catalog_p_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_p_picks.pkl'
+    with open(catalog_p_picks_file_path,'rb') as fp:
+        catalog_p_picks = pickle.load(fp)
+
+    catalog_s_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_s_picks.pkl'
+    with open(catalog_s_picks_file_path,'rb') as fp:
+        catalog_s_picks = pickle.load(fp)
+
+
+
+    # Loading Ground truth data
+    Ground_truth_file_path_p = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_p_picks.pkl'
+    with open(Ground_truth_file_path_p,'rb') as fp:
+        Ground_truth_p = pickle.load(fp)
+
+    Ground_truth_file_path_s = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_s_picks.pkl'
+    with open(Ground_truth_file_path_s,'rb') as fp:
+        Ground_truth_s = pickle.load(fp)
+    
+
+    Ground_truth = pd.concat([Ground_truth_p, Ground_truth_s], axis=0)
+    Ground_truth.sort_values(by=['picks_time'], inplace=True)
+
+    Ground_truth.drop(columns=['picks_uncertainty','origins_time', 'origins_longitude', 'origins_latitude','magnitudes'], errors='ignore', inplace=True)
+    # Loading automatics picker data
+    
+    picker_p_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQ Trasfermer based on instance/2011.90/PhaseNet_result_p_picks.pkl'
+    with open(picker_p_picks_file_path,'rb') as fp:
+        p_picks = pickle.load(fp)
+
+    picker_s_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQ Trasfermer based on instance/2011.90/PhaseNet_result_s_picks.pkl'
+    with open(picker_s_picks_file_path,'rb') as fp:
+        s_picks = pickle.load(fp)
+
+    event_picks = pd.concat([p_picks,s_picks], axis=0)
+    event_picks.sort_values(by=['timestamp'], inplace=True)
+    
+    event_picks_file_path = '/home/javak/Sample_data_chile/Events_catalog/Manual picks/Jonas/picks_2011_090_cleaned.pkl'
+    with open(event_picks_file_path,'rb') as fp:
+        event_picks = pickle.load(fp)
+
+    picks_obj = Picks_Comparison (start_year_analysis, 
+                    start_day_analysis,
+                    end_year_analysis,
+                    end_day_analysis,event_picks, Ground_truth)
+
+    all_dists_p, all_dists_s = picks_obj()
+
+    print(all_dists_p.shape)
+    print(all_dists_s.shape)
+    print(event_picks.shape)
+    print(Ground_truth.shape)
+
+    print(all_dists_p[np.abs(all_dists_p) < time_lag_threshold].shape[0]/all_dists_p.shape[0])
+    print(all_dists_s[np.abs(all_dists_s) < time_lag_threshold].shape[0]/all_dists_s.shape[0])
+    '''
+
+
+
+    
+
