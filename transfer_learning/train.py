@@ -16,9 +16,9 @@ import torch
 import os
 import logging
 
-import data
+#import data
 import models
-from util import default_workers
+#from util import default_workers
 
 
 def train(config, experiment_name, test_run):
