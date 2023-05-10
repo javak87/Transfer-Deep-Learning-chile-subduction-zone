@@ -37,8 +37,21 @@ class EQTransformer_Transfer_Learning(object):
     '''
     # Phase dict for labelling. We only study P and S phases without differentiating between them.
     phase_dict = {
+        "trace_p_arrival_sample": "P",
+        "trace_pP_arrival_sample": "P",
         "trace_P_arrival_sample": "P",
+        "trace_P1_arrival_sample": "P",
+        "trace_Pg_arrival_sample": "P",
+        "trace_Pn_arrival_sample": "P",
+        "trace_PmP_arrival_sample": "P",
+        "trace_pwP_arrival_sample": "P",
+        "trace_pwPm_arrival_sample": "P",
+        "trace_s_arrival_sample": "S",
         "trace_S_arrival_sample": "S",
+        "trace_S1_arrival_sample": "S",
+        "trace_Sg_arrival_sample": "S",
+        "trace_SmS_arrival_sample": "S",
+        "trace_Sn_arrival_sample": "S",
     }
 
     def __init__ (self, config:'json'):
@@ -130,11 +143,11 @@ class EQTransformer_Transfer_Learning(object):
             EQTransformer_Transfer_Learning.train_loop(config, model, train_loader, t, optimizer, criterion)
             print('------- training performance -------')
             _,_,_ = self.check_accuracy(train_loader, model, t)
-            model.eval()
+            #model.eval()
             
-            print('------- Test performance -------')
-            self.test_loop(model, test_loader,t, criterion)
-            _,_,_ = self.check_accuracy(test_loader, model, t)
+            #print('------- Test performance -------')
+            #self.test_loop(model, test_loader,t, criterion)
+            #_,_,_ = self.check_accuracy(test_loader, model, t)
 
             # save check_point
             if t % 5 == 0:
@@ -216,7 +229,7 @@ class EQTransformer_Transfer_Learning(object):
             ),
             detection_labeller,
             # Normalize to ensure correct augmentation behavior
-            sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1, amp_norm_type="peak"),
+            sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1, amp_norm_type="std"),
         ]
 
         block2 = [
@@ -252,7 +265,7 @@ class EQTransformer_Transfer_Learning(object):
             # Channel dropout
             sbg.OneOf([sbg.ChannelDropout(), sbg.NullAugmentation()], [0.3, 0.7]),
             # Augmentations make second normalize necessary
-            sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1, amp_norm_type="peak"),
+            sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1, amp_norm_type="std"),
         ]
 
         block1, block2 = self.get_base_augmentations()
@@ -337,7 +350,7 @@ class EQTransformer_Transfer_Learning(object):
             ),
             detection_labeller,
             # Normalize to ensure correct augmentation behavior
-            sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1, amp_norm_type="peak"),
+            sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1, amp_norm_type="std"),
         ]
 
         block2 = [
@@ -370,7 +383,7 @@ class EQTransformer_Transfer_Learning(object):
             # Channel dropout
             sbg.OneOf([sbg.ChannelDropout(), sbg.NullAugmentation()], [0.3, 0.7]),
             # Augmentations make second normalize necessary
-            sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1, amp_norm_type="peak"),
+            sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1, amp_norm_type="std"),
         ]
 
         train_augmentations = block1 + augmentation_block + block2
@@ -620,8 +633,8 @@ class Annotation(object):
         
         # load model
         model = sbm.EQTransformer.from_pretrained('instance').to(device="cuda" if torch.cuda.is_available() else "cpu")
-        checkpoint = torch.load('transfer_learing_EQT.pth.tar')
-        model.load_state_dict(checkpoint)
+        #checkpoint = torch.load('transfer_learing_EQT.pth.tar')
+        #model.load_state_dict(checkpoint)
         self.model = model
 
     def deploy_model(self, start_year_analysis, start_day_analysis,
@@ -648,6 +661,7 @@ class Annotation(object):
         automatic_picks = pd.DataFrame(pick_df)
         PhaseNet_result_p_picks = automatic_picks[automatic_picks.type =='p']
         PhaseNet_result_s_picks = automatic_picks[automatic_picks.type =='s']
+        automatic_picks.to_pickle(os.path.join('/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog', 'PhaseNet_result_p&s.pkl'))
         PhaseNet_result_p_picks.to_pickle(os.path.join('/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog', 'PhaseNet_result_p_picks.pkl'))
         PhaseNet_result_s_picks.to_pickle(os.path.join('/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog', 'PhaseNet_result_s_picks.pkl'))
         return automatic_picks
@@ -747,15 +761,13 @@ if __name__ == '__main__':
     with open('instance_eqtransformer.json', "r") as f:
         config = json.load(f)
 
-    phasenet_obj = EQTransformer_Transfer_Learning(config)
+    #phasenet_obj = EQTransformer_Transfer_Learning(config)()
 
-
-    phasenet_obj()
     
-    start_year_analysis = 2011
-    start_day_analysis = 90
-    end_year_analysis = 2011
-    end_day_analysis = 90
+    start_year_analysis = 2018
+    start_day_analysis = 85
+    end_year_analysis = 2018
+    end_day_analysis = 85
 
     
 
@@ -765,35 +777,6 @@ if __name__ == '__main__':
 
     obj = Annotation()
     obj.deploy_model(start_year_analysis, start_day_analysis, end_year_analysis, end_day_analysis)
-    
-    '''
-    base_path ='/home/javak/Transfer-Deep-Learning-chile-subduction-zone/transfer_learning/Creat_datasets/day1'
-    base_model = 'instance'
-    loss_weight = [2.22, 4.28, 3.4]
-    lr = 0.0006
-    batch_size = 256
-    num_workers = 10
-    epoch =70
-    
-    phasenet_obj = EQTransformer_Transfer_Learning(base_path, base_model,
-                            loss_weight,
-                            lr,
-                            batch_size, num_workers, 
-                            epoch, 
-                            add_scal=True, add_hist=True)
-
-
-    phasenet_obj()
-    '''
-    '''
-    base_path ='/home/javak/Transfer-Deep-Learning-chile-subduction-zone/transfer_learning/Creat_datasets/day1'
-
-    base_model_list = ['instance', 'original']
-    loss_weight_range = [2,10]
-    batch_size_list = [128, 512]
-    tun_obj = Parameters_Tuning (base_path, base_model_list, loss_weight_range, batch_size_list)
-    tun_obj()
-    '''
     
 
     

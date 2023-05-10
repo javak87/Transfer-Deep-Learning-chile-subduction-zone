@@ -60,10 +60,9 @@ class Data_Preprocessing(object):
                 (chile_path_file['convert_yeartoday']<= upper_limit)]   
 
         chile_path_file = chile_path_file.drop_duplicates()
-
+        chile_path_file = chile_path_file[chile_path_file['network']=='CX']
         # creat new DataFrame to make sure all 3-components are existed
         df_counter = chile_path_file.groupby(['network','station', 'year', 'day']).size().reset_index(name='count')
-        df_counter = df_counter[df_counter['count']==3]
 
         # drop the 'count' column
         df_counter = df_counter.drop(columns=['count'])
@@ -96,20 +95,8 @@ class Data_Preprocessing(object):
             DF_selected_chile_path_file = pickle.load(fs)
 
 
-        df = DF_selected_chile_path_file[['network', 'station', 'year','day']]==DF_auxiliary_path_file.iloc[0]
-        df_components = DF_selected_chile_path_file[(df['network']== True) & 
-                        (df['station']== True) & (df['year']== True) &
-                        (df['day']== True)]
-
-        trZ = obspy.read(df_components.path.iloc[2])
-        trN = obspy.read(df_components.path.iloc[1])
-        trE = obspy.read(df_components.path.iloc[0])
-
-        trN.append(trE[0])
-        trN.append(trZ[0])
-        stream = trN.sort()
-
-        for i in range (1, DF_auxiliary_path_file.shape[0]):
+        stream = obspy.core.stream.Stream()
+        for i in range(0, DF_auxiliary_path_file.shape[0]):
 
             
             # Apply filter to determine the three components in "DF_selected_chile_path_file"
@@ -118,33 +105,26 @@ class Data_Preprocessing(object):
                             (df['station']== True) & (df['year']== True) &
                             (df['day']== True)]
 
-            # Read three components mseed file 
-            #one_st_stream = []
+            if df_components.shape[0] < 3:
+                continue
 
-            trZ = obspy.read(df_components.path.iloc[2])
-            trN = obspy.read(df_components.path.iloc[1])
-            trE = obspy.read(df_components.path.iloc[0])
+            if df_components.shape[0] > 3:
+                print("The channel is more than 3")
 
-            #streamN += streamE
-            #streamN += streamZ
-            #st = streamN.sort()
-
-            trN.append(trE[0])
-            trN.append(trZ[0])
-            trN = trN.sort()
-
-            stream.append(trN[0])
-            stream.append(trN[1])
-            stream.append(trN[2])
-            #one_st_stream += streamN
-            #one_st_stream += streamE
-            #one_st_stream += streamZ
-            #one_st_stream = one_st_stream.sort()
-
-            #stream += one_st_stream
+            st = obspy.read(df_components.path.iloc[0])
+            st += obspy.read(df_components.path.iloc[1])
+            st += obspy.read(df_components.path.iloc[2])
             
 
 
-            #stream.append(mini_stream)
+            if len (st) != 3:
+                st = st.merge(fill_value='interpolate')
+            st = st.sort()
+
+            start = max(st.traces[0].stats.starttime, st.traces[1].stats.starttime,st.traces[2].stats.starttime)
+            end = min(st.traces[0].stats.endtime, st.traces[1].stats.endtime,st.traces[2].stats.endtime)
+            st = st.slice(starttime = start, endtime = end)          
+
+            stream += st
 
         return stream
