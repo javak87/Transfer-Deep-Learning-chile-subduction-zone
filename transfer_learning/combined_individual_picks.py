@@ -5,8 +5,8 @@ import os
 
 
 
-directory = '/home/javak/Sample_data_chile/Events_catalog/Manual picks/Cristian_Jonas_Nooshin_manual_picks'
-picker_name = 'Cristian_Jonas_Nooshin_manual_picks'
+directory = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQT_Instance_CJN/p=0.09_s=0.1_d=0.005'
+picker_name = '2017_217_p=0.09_s=0.1_d=0.005'
 picks_name =[]
 for path,subdir,files in os.walk(directory):
     #for name_dir in subdir:

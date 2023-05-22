@@ -633,13 +633,13 @@ class Annotation(object):
         
         # load model
         model = sbm.EQTransformer.from_pretrained('instance').to(device="cuda" if torch.cuda.is_available() else "cpu")
-        #checkpoint = torch.load('transfer_learing_EQT.pth.tar')
-        #model.load_state_dict(checkpoint)
+        checkpoint = torch.load('EQT_Trained_INSTANCE_CJN.pth.tar')
+        model.load_state_dict(checkpoint)
         self.model = model
 
     def deploy_model(self, start_year_analysis, start_day_analysis,
                             end_year_analysis, end_day_analysis,
-                            P_th=0.075, S_th=0.1):
+                            P_th=0.3, S_th=0.3, D_th=0.02):
 
         obj = Data_Preprocessing (start_year_analysis, start_day_analysis,
                             end_year_analysis, end_day_analysis)
@@ -647,7 +647,7 @@ class Annotation(object):
                 
         stream = obj.get_waveforms_chile()
 
-        picks,_ = self.model.classify(stream, batch_size=256, P_threshold=P_th, S_threshold=S_th, parallelism=1)
+        picks,_ = self.model.classify(stream, batch_size=256, P_threshold=P_th, S_threshold=S_th, detection_threshold=D_th, parallelism=1)
 
         pick_df = []
         for p in picks:
@@ -764,10 +764,10 @@ if __name__ == '__main__':
     #phasenet_obj = EQTransformer_Transfer_Learning(config)()
 
     
-    start_year_analysis = 2018
-    start_day_analysis = 85
-    end_year_analysis = 2018
-    end_day_analysis = 85
+    start_year_analysis = 2017
+    start_day_analysis = 217
+    end_year_analysis = 2017
+    end_day_analysis = 217
 
     
 

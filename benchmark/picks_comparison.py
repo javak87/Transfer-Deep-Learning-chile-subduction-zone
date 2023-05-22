@@ -97,7 +97,7 @@ class Picks_Comparison (object):
         #with open('Ground_truth_p_picks','rb') as fs:
         #    catalog_DF_P_picks = pickle.load(fs)
 
-        catalog_DF_P_picks = self.Ground_truth[self.Ground_truth.phase_hint=='P']
+        
         # creat extra columns
         if 'id' in df_P_picks.columns:
             df_P_picks[['station_code', 'others']] = df_P_picks['id'].str.split('.', 1, expand=True)
@@ -107,6 +107,20 @@ class Picks_Comparison (object):
         if 'timestamp' not in df_P_picks.columns:
             df_P_picks.rename(columns={'picks_time': 'timestamp'}, inplace=True)
 
+
+        if 'type' in self.Ground_truth.columns:
+            self.Ground_truth.rename(columns={'type': 'phase_hint'}, inplace=True)
+            self.Ground_truth.rename(columns={'timestamp':'picks_time'}, inplace=True)
+            self.Ground_truth['phase_hint'] = self.Ground_truth['phase_hint'].str.upper()
+
+            self.Ground_truth[['station_code', 'others']] = self.Ground_truth['id'].str.split('.', 1, expand=True)
+            self.Ground_truth[['station_code', 'others']] = self.Ground_truth['others'].str.split('.', 1, expand=True)
+            self.Ground_truth = self.Ground_truth.drop(['others'], axis=1)
+
+
+
+
+        catalog_DF_P_picks = self.Ground_truth[self.Ground_truth.phase_hint=='P']
         # find common station_code in catalog and PhaseNet
         boolean_column = catalog_DF_P_picks['station_code'].isin(df_P_picks['station_code'])
         catalog_DF_P_picks = catalog_DF_P_picks[(boolean_column==True)]
@@ -167,7 +181,7 @@ class Picks_Comparison (object):
             pick_df['type'] = pick_df['type'].str.lower()
 
         df_S_picks = pick_df[pick_df.type == 's']
-        catalog_DF_S_picks = self.Ground_truth[self.Ground_truth.phase_hint=='S']
+        
 
         # creat extra columns
         if 'id' in df_S_picks.columns:
@@ -177,6 +191,18 @@ class Picks_Comparison (object):
         
         if 'timestamp' not in df_S_picks.columns:
             df_S_picks.rename(columns={'picks_time': 'timestamp'}, inplace=True)
+
+
+        if 'type' in self.Ground_truth.columns:
+            self.Ground_truth.rename(columns={'type': 'phase_hint'}, inplace=True)
+            self.Ground_truth.rename(columns={'timestamp':'picks_time'}, inplace=True)
+            self.Ground_truth['phase_hint'] = self.Ground_truth['phase_hint'].str.upper()
+
+            self.Ground_truth[['station_code', 'others']] = self.Ground_truth['id'].str.split('.', 1, expand=True)
+            self.Ground_truth[['station_code', 'others']] = self.Ground_truth['others'].str.split('.', 1, expand=True)
+            self.Ground_truth = self.Ground_truth.drop(['others'], axis=1)
+
+        catalog_DF_S_picks = self.Ground_truth[self.Ground_truth.phase_hint=='S']
 
         # find common station_code in catalog and PhaseNet
         boolean_column = catalog_DF_S_picks['station_code'].isin(df_S_picks['station_code'])
@@ -221,17 +247,18 @@ class Picks_Comparison (object):
 
 if __name__ == "__main__":
 
-
-
     start_year_analysis = 2011
     start_day_analysis = 90
     end_year_analysis = 2011
     end_day_analysis = 90
     time_lag_threshold = 500 # mi second
 
-    catalog = 'IPOC'
-    GT = 'Hand-picked'
-    title = '{0}{1}{2}{3}{4}'.format(catalog,' catalog', ' and Ground truth (',GT,') Comparison' )
+    catalog = 'Instance'
+    GT = 'IPOC'
+
+    title = '{0}{1}'.format(catalog,' catalog')
+    y_label_P = '{0}{1}{2}'.format(' Ground truth (', GT, ')' + '\n' +' Number of P picks')
+    y_label_S = '{0}{1}{2}'.format(' Ground truth (', GT, ')' + '\n' +' Number of S picks')
 
     if GT =='IPOC':
 
@@ -247,6 +274,10 @@ if __name__ == "__main__":
         Ground_truth = pd.concat([Ground_truth_p, Ground_truth_s], axis=0)
         Ground_truth.sort_values(by=['picks_time'], inplace=True)
 
+        # Drop PB08 Station
+        Ground_truth.reset_index(drop=True, inplace=True)
+        Ground_truth.drop(index= np.where(Ground_truth["station_code"] == 'PB08')[0].tolist(), inplace=True)
+
         Ground_truth.drop(columns=['picks_uncertainty','origins_time', 'origins_longitude', 'origins_latitude','magnitudes'], errors='ignore', inplace=True)
 
     if GT =='Hand-picked':
@@ -254,7 +285,9 @@ if __name__ == "__main__":
         with open(Ground_truth_file_path,'rb') as fp:
             Ground_truth = pickle.load(fp)
 
-
+        # Drop PB08 Station
+        Ground_truth.reset_index(drop=True, inplace=True)
+        Ground_truth.drop(index= np.where(Ground_truth["station_code"] == 'PB08')[0].tolist(), inplace=True)
 
     if catalog =='IPOC':
 
@@ -265,13 +298,16 @@ if __name__ == "__main__":
         catalog_file_path_s = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_s_picks.pkl'
         with open(catalog_file_path_s,'rb') as fp:
             catalog_s = pickle.load(fp)
-    
+        
 
-    catalog = pd.concat([catalog_p, catalog_s], axis=0)
-    catalog.sort_values(by=['picks_time'], inplace=True)
+        event_picks = pd.concat([catalog_p, catalog_s], axis=0)
+        event_picks.sort_values(by=['picks_time'], inplace=True)
 
-    catalog.drop(columns=['picks_uncertainty','origins_time', 'origins_longitude', 'origins_latitude','magnitudes'], errors='ignore', inplace=True)
+        event_picks.drop(columns=['picks_uncertainty','origins_time', 'origins_longitude', 'origins_latitude','magnitudes'], errors='ignore', inplace=True)
 
+        # Drop PB08 Station
+        event_picks.reset_index(drop=True, inplace=True)
+        event_picks.drop(index= np.where(event_picks["station_code"] == 'PB08')[0].tolist(), inplace=True)
 
 
     if catalog == 'Hand-picked':
@@ -279,6 +315,10 @@ if __name__ == "__main__":
         catalog_file_path = '/home/javak/Sample_data_chile/Events_catalog/Manual picks/Jonas/picks_2011_090_cleaned.pkl'
         with open(catalog_file_path,'rb') as fp:
             event_picks = pickle.load(fp)
+    
+        # Drop PB08 Station
+        event_picks.reset_index(drop=True, inplace=True)
+        event_picks.drop(index= np.where(event_picks["station_code"] == 'PB08')[0].tolist(), inplace=True)
 
 
     if catalog == 'Instance-Iquique':
@@ -294,6 +334,9 @@ if __name__ == "__main__":
         event_picks = pd.concat([p_picks,s_picks], axis=0)
         event_picks.sort_values(by=['timestamp'], inplace=True)
 
+        # Drop PB08 Station
+        event_picks.reset_index(drop=True, inplace=True)
+        event_picks.drop(index= np.where(event_picks['id']=='CX.PB08.')[0].tolist(), inplace=True)
 
     if catalog == 'Instance':
 
@@ -308,39 +351,10 @@ if __name__ == "__main__":
         event_picks = pd.concat([p_picks,s_picks], axis=0)
         event_picks.sort_values(by=['timestamp'], inplace=True)
 
-    '''
-    # Loading Ground truth data
-    picker_p_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_p_picks.pkl'
-    with open(picker_p_picks_file_path,'rb') as fp:
-        picker_p_picks_file = pickle.load(fp)
+        # Drop PB08 Station
+        event_picks.reset_index(drop=True, inplace=True)
+        event_picks.drop(index= np.where(event_picks['id']=='CX.PB08.')[0].tolist(), inplace=True)
 
-    picker_s_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_s_picks.pkl'
-    with open(picker_s_picks_file_path,'rb') as fp:
-        picker_s_picks_file = pickle.load(fp)
-
-
-
-    event_picks = pd.concat([picker_p_picks_file, picker_s_picks_file], axis=0)
-    event_picks.sort_values(by=['picks_time'], inplace=True)
-
-    event_picks.drop(columns=['picks_uncertainty','origins_time', 'origins_longitude', 'origins_latitude','magnitudes'], errors='ignore', inplace=True)
-    '''
-    # Loading automatics picker data
-
-    # Loading automatics picker data
-    #picker_p_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_p_picks.pkl'
-    #with open(picker_p_picks_file_path,'rb') as fp:
-    #    p_picks = pickle.load(fp)
-
-    #picker_s_picks_file_path = '/home/javak/Sample_data_chile/Comparing PhaseNet and Catalog/EQTransformer_transfer learning_instance/Binary entropy/P=0.075, s= 0.1/2011.90 (trained on Iquque)/catalog_p_picks.pkl'
-    #with open(picker_s_picks_file_path,'rb') as fp:
-    #    s_picks = pickle.load(fp)
-
-    #event_picks = pd.concat([p_picks,s_picks], axis=0)
-    #event_picks.sort_values(by=['timestamp'], inplace=True)
-    #event_picks_file_path = '/home/javak/Sample_data_chile/Events_catalog/Manual picks/Jonas/picks_2011_090_cleaned.pkl'
-    #with open(event_picks_file_path,'rb') as fp:
-    #    event_picks = pickle.load(fp)
 
     picks_obj = Picks_Comparison (start_year_analysis, 
                     start_day_analysis,
