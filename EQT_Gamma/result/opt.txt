@@ -1,0 +1,12 @@
+----------------- Options ---------------
+              P_threshold: 0.2                           
+              S_threshold: 0.2                           
+               base_model: instance                      
+               batch_size: 256                           
+              check_point: EQT_Trained_INSTANCE_CJN.pth.tar
+                data_path: /data2/chile/CHILE_COMBINED_2021
+      detection_threshold: 0.01                          
+      file_path_generator: False                         
+               suffix_EQT: EQT_picks                     
+            time_interval: (2011, 1, 2011, 1)            
+----------------- End -------------------
