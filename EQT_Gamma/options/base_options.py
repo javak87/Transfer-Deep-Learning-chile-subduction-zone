@@ -18,6 +18,9 @@ class BaseOptions():
         parser.add_argument('--time_interval', type=tuple, default=(2011,1,2011,1), 
                             help='The time interval for styd.(a1: start_year,a2: start_day,a3: end_year,a4: end_day)')
         #parser.add_argument('--suffix', default='', type=str, help='customized suffix: opt.name = opt.name + suffix: e.g., {model}_{netG}_size{loadSize}')
+
+        parser.add_argument('--client', type=str, default='GFZ', help='FDSN client name')
+
         self.initialized = True
 
         return parser

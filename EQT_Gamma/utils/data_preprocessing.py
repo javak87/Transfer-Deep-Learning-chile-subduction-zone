@@ -1,10 +1,13 @@
 import pandas as pd
 import obspy
+from obspy.clients.fdsn import Client
+from obspy.core import UTCDateTime
 import pickle
 import os
 from os import path
 import seisbench
 from pathlib import Path
+import datetime
 
 
 class Data_Preprocessing(object):
@@ -74,6 +77,44 @@ class Data_Preprocessing(object):
 
         # Save auxiliary DataFrame based on given time interval
         df_counter.to_pickle(os.path.join('{0}/{1}'.format(Path(os.path.dirname(__file__)).parent,'result/df_path_files') , 'DF_auxiliary_path_file.pkl'))
+
+    def jdtodatestd (self,jdate):
+        fmt = '%Y%j'
+        datestd = datetime.datetime.strptime(jdate, fmt).date()
+        
+        return UTCDateTime(datestd.year, datestd.month, datestd.day)
+
+    def get_station (self, client_name, transformer):
+        
+        start_time = self.jdtodatestd(str(self.start_year_analysis)+str(self.start_day_analysis))
+        end_time = self.jdtodatestd(str(self.end_year_analysis)+str(self.end_day_analysis+1))
+        
+        inv = Client(client_name).get_stations(network="CX", station="*", location="*", channel="HH?", starttime=start_time, endtime=end_time)
+        
+        station_dict, station_df = self.get_station_dict (inv, transformer)
+        
+        return station_dict, station_df
+    
+    def get_station_dict (self, inv, transformer):
+        
+        station_df = []
+        for station in inv[0]:
+            station_df.append({
+                "id": f"CX.{station.code}.",
+                "longitude": station.longitude,
+                "latitude": station.latitude,
+                "elevation(m)": station.elevation
+            })
+        station_df = pd.DataFrame(station_df)
+
+        station_df["x(km)"] = station_df.apply(lambda x: transformer.transform(x["latitude"], x["longitude"])[0] / 1e3, axis=1)
+        station_df["y(km)"] = station_df.apply(lambda x: transformer.transform(x["latitude"], x["longitude"])[1] / 1e3, axis=1)
+        station_df["z(km)"] = station_df["elevation(m)"] / 1e3
+
+        northing = {station: y for station, y in zip(station_df["id"], station_df["y(km)"])}
+        station_dict = {station: (x, y) for station, x, y in zip(station_df["id"], station_df["x(km)"], station_df["y(km)"])}
+        
+        return station_dict, station_df
 
     def get_waveforms_chile(self):
         

@@ -1,12 +1,27 @@
 ----------------- Options ---------------
-              P_threshold: 0.2                           
-              S_threshold: 0.2                           
-               base_model: instance                      
-               batch_size: 256                           
-              check_point: EQT_Trained_INSTANCE_CJN.pth.tar
+                   client: GFZ                           
+         covariance_prior: (5, 5)                        
                 data_path: /data2/chile/CHILE_COMBINED_2021
-      detection_threshold: 0.01                          
+               dbscan_eps: 10                            
+       dbscan_min_samples: 3                             
       file_path_generator: False                         
-               suffix_EQT: EQT_picks                     
+           initial_points: [1, 1, 1]                     
+              max_sigma11: 2                             
+              max_sigma12: 1                             
+              max_sigma22: 1                             
+                   method: BGMM                          
+       min_p_picks_per_eq: 3                             
+         min_picks_per_eq: 5                             
+       min_s_picks_per_eq: 3                             
+      oversampling_factor: 4                             
+                pick_path: ./result/picker_output/EQT_picks_bas_modl:instance_chk_pt:True_which_chk_pt:EQT_Trained_INSTANCE_CJN.pth.tar_p_th:0.2_s_th:0.2_det_th:0.01_batch_size:256.pkl
+            proj_idt_from: 4326                          
+              proj_idt_to: 9155                          
             time_interval: (2011, 1, 2011, 1)            
+              transformer: unavailable until proj_trans is called
+            use_amplitude: False                         
+               use_dbscan: True                          
+               x_interval: (250, 600)                    
+               y_interval: (7200, 8000)                  
+               z_interval: (0, 150)                      
 ----------------- End -------------------
