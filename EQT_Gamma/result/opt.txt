@@ -2,7 +2,7 @@
                    client: GFZ                           
          covariance_prior: (5, 5)                        
                 data_path: /data2/chile/CHILE_COMBINED_2021
-               dbscan_eps: 10                            
+               dbscan_eps: 25                            
        dbscan_min_samples: 3                             
       file_path_generator: False                         
            initial_points: [1, 1, 1]                     
@@ -11,7 +11,7 @@
               max_sigma22: 1                             
                    method: BGMM                          
        min_p_picks_per_eq: 3                             
-         min_picks_per_eq: 5                             
+         min_picks_per_eq: 6                             
        min_s_picks_per_eq: 3                             
       oversampling_factor: 4                             
                 pick_path: ./result/picker_output/EQT_picks_bas_modl:instance_chk_pt:True_which_chk_pt:EQT_Trained_INSTANCE_CJN.pth.tar_p_th:0.2_s_th:0.2_det_th:0.01_batch_size:256.pkl
@@ -21,7 +21,7 @@
               transformer: unavailable until proj_trans is called
             use_amplitude: False                         
                use_dbscan: True                          
-               x_interval: (250, 600)                    
-               y_interval: (7200, 8000)                  
-               z_interval: (0, 150)                      
+               x_interval: (50, 800)                     
+               y_interval: (5500, 9500)                  
+               z_interval: (0, 200)                      
 ----------------- End -------------------

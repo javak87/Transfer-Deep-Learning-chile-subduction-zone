@@ -35,54 +35,113 @@ class Visualization():
 
     def plot_waveform (self, picks, catalog, assignments, stream, station_dict):
 
-        event_idx = np.random.randint(len(catalog))
-        event_picks = [picks[i] for i in assignments[assignments["event_idx"] == event_idx]["pick_idx"]]
-        event = catalog.iloc[event_idx]
+        #event_idx = np.random.randint(len(catalog))
+        for event_idx in range(len(catalog)):
 
-        first, last = min(pick.peak_time for pick in event_picks), max(pick.peak_time for pick in event_picks)
+            event_picks = [picks[i] for i in assignments[assignments["event_idx"] == event_idx]["pick_idx"]]
+            event = catalog.iloc[event_idx]
 
-        sub = obspy.Stream()
+            first, last = min(pick.peak_time for pick in event_picks), max(pick.peak_time for pick in event_picks)
 
-        for station in np.unique([pick.trace_id for pick in event_picks]):
-            sub.append(stream.select(station=station[3:-1], channel="HHZ")[0])
+            sub = obspy.Stream()
 
-        sub = sub.slice(first - 5, last + 5)
+            for station in np.unique([pick.trace_id for pick in event_picks]):
+                sub.append(stream.select(station=station[3:-1], channel="HHZ")[0])
 
-        sub = sub.copy()
-        sub.detrend()
-        sub.filter("highpass", freq=2)
+            sub = sub.slice(first - 7, last + 7)
 
-        fig = plt.figure(figsize=(15, 10))
-        ax = fig.add_subplot(111)
+            sub = sub.copy()
+            sub.detrend()
+            sub.filter("highpass", freq=2)
 
-        for i, trace in enumerate(sub):
-            normed = trace.data - np.mean(trace.data)
-            normed = normed / np.max(np.abs(normed))
-            station_x, station_y = station_dict[trace.id[:-4]]
-            y = np.sqrt((station_x - event["x(km)"]) ** 2 + (station_y - event["y(km)"]) ** 2 + event["z(km)"] ** 2)
-            ax.plot(trace.times(), 10 * normed + y)
-            
-        for pick in event_picks:
-            station_x, station_y = station_dict[pick.trace_id]
-            y = np.sqrt((station_x - event["x(km)"]) ** 2 + (station_y - event["y(km)"]) ** 2 + event["z(km)"] ** 2)
-            x = pick.peak_time - trace.stats.starttime
-            if pick.phase == "P":
-                ls = '-'
-            else:
-                ls = '--'
-            ax.plot([x, x], [y - 10, y + 10], 'k', ls=ls)
-            
-        ax.set_ylim(0)
-        ax.set_xlim(0, np.max(trace.times()))
-        ax.set_ylabel("Hypocentral distance [km]")
-        ax.set_xlabel("Time [s]")
+            fig = plt.figure(figsize=(15, 10))
+            ax = fig.add_subplot(111)
 
-        print("Event information")
-        print(event)
+            for i, trace in enumerate(sub):
+                normed = trace.data - np.mean(trace.data)
+                normed = normed / np.max(np.abs(normed))
+                station_x, station_y = station_dict[trace.id[:-4]]
+                y = np.sqrt((station_x - event["x(km)"]) ** 2 + (station_y - event["y(km)"]) ** 2 + event["z(km)"] ** 2)
+                ax.plot(trace.times(), 10 * normed + y)
+                
+            for pick in event_picks:
+                station_x, station_y = station_dict[pick.trace_id]
+                y = np.sqrt((station_x - event["x(km)"]) ** 2 + (station_y - event["y(km)"]) ** 2 + event["z(km)"] ** 2)
+                x = pick.peak_time - trace.stats.starttime
+                if pick.phase == "P":
+                    ls = '-'
+                else:
+                    ls = '--'
+                ax.plot([x, x], [y - 10, y + 10], 'k', ls=ls)
+                
+            ax.set_ylim(0)
+            ax.set_xlim(0, np.max(trace.times()))
+            ax.set_ylabel("Hypocentral distance [km]")
+            ax.set_xlabel("Time [s]")
 
-        file_name = '{0}.{extention}'.format('./result/plots/associated_event', extention='png')
-        fig.savefig(file_name, facecolor = 'w')
+            print("Event information")
+            print(event)
 
+            file_name = '{0}{1}.{extention}'.format('./result/plots/associated_event_',event_idx, extention='png')
+            fig.savefig(file_name, facecolor = 'w')
+
+
+
+    def plot_sorted_lat (self, picks, catalog, assignments, stream, station_dict):
+
+        #event_idx = np.random.randint(len(catalog))
+        for event_idx in range(len(catalog)):
+
+            event_picks = [picks[i] for i in assignments[assignments["event_idx"] == event_idx]["pick_idx"]]
+            event = catalog.iloc[event_idx]
+
+            first, last = min(pick.peak_time for pick in event_picks), max(pick.peak_time for pick in event_picks)
+
+            sub = obspy.Stream()
+
+            for station in np.unique([pick.trace_id for pick in event_picks]):
+                sub.append(stream.select(station=station[3:-1], channel="HHZ")[0])
+
+            sub = sub.slice(first - 7, last + 7)
+
+            sub = sub.copy()
+            sub.detrend()
+            sub.filter("highpass", freq=2)
+
+            fig = plt.figure(figsize=(15, 10))
+            ax = fig.add_subplot(111)
+
+            for i, trace in enumerate(sub):
+                normed = trace.data - np.mean(trace.data)
+                normed = normed / np.max(np.abs(normed))
+                station_x, station_y = station_dict[trace.id[:-4]]
+                #y = np.sqrt((station_x - event["x(km)"]) ** 2 + (station_y - event["y(km)"]) ** 2 + event["z(km)"] ** 2)
+                y = station_y
+                
+                ax.plot(trace.times(), 10 * normed + y, label = trace.id)
+                ax.legend(loc='upper right', fontsize=8)
+                
+            for pick in event_picks:
+                station_x, station_y = station_dict[pick.trace_id]
+                y = station_y
+                #y = np.sqrt((station_x - event["x(km)"]) ** 2 + (station_y - event["y(km)"]) ** 2 + event["z(km)"] ** 2)
+                x = pick.peak_time - trace.stats.starttime
+                if pick.phase == "P":
+                    ls = '-'
+                else:
+                    ls = '--'
+                ax.plot([x, x], [y - 10, y + 10], 'k', ls=ls)
+                
+            ax.set_ylim(7400, 8000)
+            ax.set_xlim(0, np.max(trace.times()))
+            ax.set_ylabel("Y distance [km]")
+            ax.set_xlabel("Time [s]")
+
+            print("Event information")
+            print(event)
+
+            file_name = '{0}{1}.{extention}'.format('./result/plots/associated_event_',event_idx, extention='png')
+            fig.savefig(file_name, facecolor = 'w')
 
         
 

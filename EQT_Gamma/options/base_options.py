@@ -63,6 +63,10 @@ class BaseOptions():
         if os.path.exists(picker_out_dir) == False:
             os.mkdir(picker_out_dir)
         
+        snuffler_out_dir = os.path.join(current_dir, 'result/snuffler_output')
+        if os.path.exists(snuffler_out_dir) == False:
+            os.mkdir(snuffler_out_dir)
+        
         file_name = os.path.join(expr_dir, 'opt.txt')
         with open(file_name, 'wt') as opt_file:
             opt_file.write(message)

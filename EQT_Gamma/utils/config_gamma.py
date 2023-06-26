@@ -37,9 +37,14 @@ class ConfigGamma():
 
         # Filtering
         config["min_picks_per_eq"] = self.opt.min_picks_per_eq
+        config["min_p_picks_per_eq"] = self.opt.min_p_picks_per_eq
+        config["min_s_picks_per_eq"] = self.opt.min_s_picks_per_eq
+
         config["max_sigma11"] = self.opt.max_sigma11
         config["max_sigma22"] = self.opt.max_sigma22
         config["max_sigma12"] = self.opt.max_sigma12 
+        
+        config["covariance_prior"] = self.opt.covariance_prior 
 
         return config      
 

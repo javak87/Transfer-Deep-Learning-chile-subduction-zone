@@ -10,11 +10,11 @@ class GammaOptions(BaseOptions):
         parser.add_argument('--use_dbscan', type=bool, default=True, help='If using dbscan to cut a long sequence of picks into segments. Using DBSCAN can significantly speed up associaiton using small windows.')
         parser.add_argument('--use_amplitude', type=bool, default=False, help='Use amplitude for association')
         
-        parser.add_argument('--x_interval', type=tuple, default=(250, 600), help='The x interval of area for seismic association')
-        parser.add_argument('--y_interval', type=tuple, default=(7200, 8000), help='The y interval of area for seismic association')
-        parser.add_argument('--z_interval', type=tuple, default=(0, 150), help='The z interval of area for seismic association')
+        parser.add_argument('--x_interval', type=tuple, default=(50, 800), help='The x interval of area for seismic association')
+        parser.add_argument('--y_interval', type=tuple, default=(5500, 9500), help='The y interval of area for seismic association')
+        parser.add_argument('--z_interval', type=tuple, default=(0, 200), help='The z interval of area for seismic association')
 
-        parser.add_argument('--dbscan_eps', type=float, default=10, help='The maximum time between two picks for one to be considered as a neighbor of the other. See details in DBSCAN')
+        parser.add_argument('--dbscan_eps', type=float, default=25, help='The maximum time between two picks for one to be considered as a neighbor of the other. See details in DBSCAN')
         parser.add_argument('--dbscan_min_samples', type=int, default=3, help='The number of samples in a neighborhood for a point to be considered as a core point. See details in DBSCAN')
         parser.add_argument('--method', type=str, default='BGMM', help='method should specify BGMM or GMM')
 
@@ -23,7 +23,7 @@ class GammaOptions(BaseOptions):
         parser.add_argument('--covariance_prior', type=tuple, default=(5,5), help='(default = (5, 5)): covariance prior of time and amplitude residuals. Because current code only uses an uniform velocity model, a large covariance prior can be used to avoid splitting one event into multiple events.')
         
         # Filtering low quality association 
-        parser.add_argument('--min_picks_per_eq', type=int, default=5, help='Minimum picks for associated earthquakes. We can also specify minimum P or S pick')
+        parser.add_argument('--min_picks_per_eq', type=int, default=6, help='Minimum picks for associated earthquakes. We can also specify minimum P or S pick')
         parser.add_argument('--min_p_picks_per_eq', type=int, default=3, help='Minimum P-picks for associated earthquakes.')
         parser.add_argument('--min_s_picks_per_eq', type=int, default=3, help='Minimum S-picks for associated earthquakes.')
         parser.add_argument('--max_sigma11', type=float, default=2, help='Max phase time residual (s)')

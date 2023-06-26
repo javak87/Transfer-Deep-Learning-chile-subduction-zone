@@ -1,3 +1,4 @@
 *.pkl
 *.tar
 ./result/df_path_files
+./result/plots
