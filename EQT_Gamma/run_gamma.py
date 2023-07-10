@@ -48,6 +48,7 @@ if __name__ == '__main__':
     # sort catalogs
     ind = np.argsort([catalogs[idx]['time'] for idx in range(len(catalogs))])
     catalogs = [catalogs[idx] for idx in ind]
+    #assignments = [assignments[idx] for idx in ind]
 
     #for i in range(len(catalogs)):
     #    timestamp_integer = int(datetime.strptime(catalogs[i]['time'], "%Y-%m-%dT%H:%M:%S.%f").timestamp())

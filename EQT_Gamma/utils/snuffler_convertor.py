@@ -36,7 +36,8 @@ class SnufflerConvertor(object):
                 if color_code == 4:
                     color_code = 0
 
-                origin_time = catalogs[event_idx]['time']
+                #origin_time = catalogs[event_idx]['time']
+                origin_time = catalog_df[catalog_df["event_index"] == event_idx].iloc[0]['time']
                 intersection_indices = group_df['pick_idx'].tolist()
                 extracted_picks = pick_df.loc[pick_df.index.isin(intersection_indices)]
 
