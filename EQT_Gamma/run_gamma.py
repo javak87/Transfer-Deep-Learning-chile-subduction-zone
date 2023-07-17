@@ -20,7 +20,8 @@ from utils.data_preprocessing import Data_Preprocessing
 from utils.visualization import Visualization
 from utils.picks_df_creator import picks_df_creator
 from utils.snuffler_convertor import SnufflerConvertor
-
+import os
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 
 if __name__ == '__main__':
@@ -39,7 +40,7 @@ if __name__ == '__main__':
         
         # create a data frame of picks
         pick_df = picks_df_creator(picks)
-        pick_df.sort_values("timestamp")
+        pick_df.sort_values("timestamp", inplace=True)
 
     #pick_df = pick_df.iloc[0:500]
     # Run Gamma associator
@@ -58,11 +59,28 @@ if __name__ == '__main__':
 
     catalog_df = pd.DataFrame(catalogs)
     assignments = pd.DataFrame(assignments, columns=["pick_idx", "event_idx", "prob_gamma"])
+
+    # Sort assignments based on the time
+    dt_list = [assignments[assignments['event_idx']==event_idx] for event_idx in catalog_df['event_index']]
     
+    assignments = pd.concat(dt_list, keys=assignments['event_idx'])
+
+    # Reset the index of the combined dataframe
+    assignments = assignments.reset_index(level=0, drop=True).reset_index()
+
+    #assignments = assignments.sort_values("event_ot")
+    #assignments = assignments.drop(['event_ot'], axis=1)
+    #assignments['event_idx'] = pd.Categorical(assignments['event_idx'], categories=ind, ordered=True)
+    #assignments = assignments.sort_values('event_idx')    
+
+    #[picks[i] for i in assignments[assignments["event_idx"] == event_idx]["pick_idx"]]
+    #assignments.sort_values("pick_idx", inplace=True)
     # Convert to Snuffler format
     Snuffler_obj = SnufflerConvertor(opt)
     Snuffler_obj(pick_df,catalog_df, catalogs, assignments)
 
+    b = 1
+    '''
     vis = Visualization ()
 
     # Create a stream object
@@ -74,12 +92,13 @@ if __name__ == '__main__':
     # plot waveform with associated events
     #vis.plot_waveform(picks, catalog, assignments, stream, station_dict)
 
-    vis.plot_sorted_lat(picks, catalog_df, assignments, stream, station_dict)
+    vis.plot_sorted_lat(picks,catalogs, catalog_df, assignments, stream, station_dict)
 
 
     # In case of occuring an thread association, it it is better to use ulimit -u 8192
     # to increase the number of limitation.
-
+    b = 1
+    '''
 
     
 

@@ -29,14 +29,39 @@ class SnufflerConvertor(object):
 
         color_code = 0
         
+        with open(snuffler_file_name, "a") as f:
+            for i in range(catalog_df.shape[0]):
+                
+                if color_code == 4:
+                    color_code = 0
+            
+                origin_time = catalog_df.iloc[i]['time']
+                event_idx = catalog_df.iloc[i]['event_index']
+                event_picks = assignments[assignments['event_idx']==event_idx]
+                intersection_indices = event_picks['pick_idx'].tolist()
+                extracted_picks = pick_df.loc[pick_df.index.isin(intersection_indices)]
 
+                # event info
+                event_code = 'C00000000000' + str(event_idx) + '_C1l5ZiDQwWCPA= '
+                event_entry = 'event: ' + str(origin_time.split('T')[0]) + ' '+ str(origin_time.split('T')[1]) + '  5 ' + event_code + '-20.820710000000002 -70.15288000000002 None         None None  Event None'+ '\n'
+                f.write(event_entry)
+    
+                for i in range(extracted_picks.shape[0]):
+                    
+                    pick_entry = 'phase: ' + str(extracted_picks["timestamp"].iloc[i]) + '  ' + str(color_code) + ' ' + str(extracted_picks["id"].iloc[i]).upper()+ '.HHZ'+ '    '+  event_code + str(origin_time.split('T')[0]) + '   '+ str(origin_time.split('T')[1]) +' ' + str(extracted_picks["type"].iloc[i]).upper() +'        None False'+ '\n'
+                    #entry = 'phase: ' + str(picks["timestamp"].iloc[i]) + '  9 ' + str(picks["id"].iloc[i]).upper()+ ch+'    ' + event_code + 2017-01-01   01:27:00.1050 ' + str(picks["type"].iloc[i]).upper() +'        None False'+ '\n'
+                    f.write(pick_entry)
+            
+                color_code += 1
+
+
+        '''
         with open(snuffler_file_name, "a") as f:
             for event_idx, group_df in grouped_assignments:
 
                 if color_code == 4:
                     color_code = 0
 
-                #origin_time = catalogs[event_idx]['time']
                 origin_time = catalog_df[catalog_df["event_index"] == event_idx].iloc[0]['time']
                 intersection_indices = group_df['pick_idx'].tolist()
                 extracted_picks = pick_df.loc[pick_df.index.isin(intersection_indices)]
@@ -53,7 +78,7 @@ class SnufflerConvertor(object):
                     f.write(pick_entry)
             
                 color_code += 1
-            
+        '''
 
 
 

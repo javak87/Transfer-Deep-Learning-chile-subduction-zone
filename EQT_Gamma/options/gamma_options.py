@@ -26,7 +26,7 @@ class GammaOptions(BaseOptions):
         parser.add_argument('--min_picks_per_eq', type=int, default=6, help='Minimum picks for associated earthquakes. We can also specify minimum P or S pick')
         parser.add_argument('--min_p_picks_per_eq', type=int, default=3, help='Minimum P-picks for associated earthquakes.')
         parser.add_argument('--min_s_picks_per_eq', type=int, default=3, help='Minimum S-picks for associated earthquakes.')
-        parser.add_argument('--max_sigma11', type=float, default=2, help='Max phase time residual (s)')
+        parser.add_argument('--max_sigma11', type=float, default=5, help='Max phase time residual (s)')
         parser.add_argument('--max_sigma22', type=float, default=1, help='Max phase amplitude residual (in log scale)')
         parser.add_argument('--max_sigma12', type=float, default=1, help='Max covariance term. (Usually not used)')
         parser.add_argument('--pick_path', type=str, default='./result/picker_output/EQT_picks_bas_modl:instance_chk_pt:True_which_chk_pt:EQT_Trained_INSTANCE_CJN.pth.tar_p_th:0.2_s_th:0.2_det_th:0.01_batch_size:256.pkl', help='The path of generated picks by EQT')

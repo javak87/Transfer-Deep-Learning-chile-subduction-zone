@@ -2,3 +2,6 @@
 *.tar
 ./result/df_path_files
 ./result/plots
+./result/snuffler_output
+./result/df_path_files
+*.pyc

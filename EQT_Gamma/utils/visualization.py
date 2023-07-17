@@ -39,7 +39,7 @@ class Visualization():
         for event_idx in range(len(catalog)):
 
             event_picks = [picks[i] for i in assignments[assignments["event_idx"] == event_idx]["pick_idx"]]
-            event = catalog.iloc[event_idx]
+            event = catalog_df[catalog_df["event_index"] == event_idx].iloc[0]
 
             first, last = min(pick.peak_time for pick in event_picks), max(pick.peak_time for pick in event_picks)
 
@@ -87,13 +87,13 @@ class Visualization():
 
 
 
-    def plot_sorted_lat (self, picks, catalog, assignments, stream, station_dict):
+    def plot_sorted_lat (self, picks,catalog, catalog_df, assignments, stream, station_dict):
 
         #event_idx = np.random.randint(len(catalog))
         for event_idx in range(len(catalog)):
 
             event_picks = [picks[i] for i in assignments[assignments["event_idx"] == event_idx]["pick_idx"]]
-            event = catalog.iloc[event_idx]
+            event = catalog_df[catalog_df["event_index"] == event_idx].iloc[0]
 
             first, last = min(pick.peak_time for pick in event_picks), max(pick.peak_time for pick in event_picks)
 
@@ -115,16 +115,16 @@ class Visualization():
                 normed = trace.data - np.mean(trace.data)
                 normed = normed / np.max(np.abs(normed))
                 station_x, station_y = station_dict[trace.id[:-4]]
-                #y = np.sqrt((station_x - event["x(km)"]) ** 2 + (station_y - event["y(km)"]) ** 2 + event["z(km)"] ** 2)
-                y = station_y
+                y = np.sqrt((station_x - event["x(km)"]) ** 2 + (station_y - event["y(km)"]) ** 2 + event["z(km)"] ** 2)
+                #y = station_y
                 
                 ax.plot(trace.times(), 10 * normed + y, label = trace.id)
                 ax.legend(loc='upper right', fontsize=8)
                 
             for pick in event_picks:
                 station_x, station_y = station_dict[pick.trace_id]
-                y = station_y
-                #y = np.sqrt((station_x - event["x(km)"]) ** 2 + (station_y - event["y(km)"]) ** 2 + event["z(km)"] ** 2)
+                #y = station_y
+                y = np.sqrt((station_x - event["x(km)"]) ** 2 + (station_y - event["y(km)"]) ** 2 + event["z(km)"] ** 2)
                 x = pick.peak_time - trace.stats.starttime
                 if pick.phase == "P":
                     ls = '-'
@@ -132,15 +132,16 @@ class Visualization():
                     ls = '--'
                 ax.plot([x, x], [y - 10, y + 10], 'k', ls=ls)
                 
-            ax.set_ylim(7400, 8000)
+            ax.set_ylim(2, 300)
             ax.set_xlim(0, np.max(trace.times()))
-            ax.set_ylabel("Y distance [km]")
+            ax.set_ylabel("Hypocentral distance [km]")
             ax.set_xlabel("Time [s]")
+            ax.set_title('{0}{1}'.format('Event_Time: ',event['time']))
 
             print("Event information")
             print(event)
 
-            file_name = '{0}{1}.{extention}'.format('./result/plots/associated_event_',event_idx, extention='png')
+            file_name = '{0}{1}.{extention}'.format('./result/plots/Event_Time: ',event['time'], extention='png')
             fig.savefig(file_name, facecolor = 'w')
 
         

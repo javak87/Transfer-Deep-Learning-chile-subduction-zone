@@ -49,7 +49,7 @@ if __name__ == '__main__':
 
     # Extract picks from EQT
     vis.eqt_start()
-    picks,_ = model.classify(stream, batch_size=opt.batch_size, P_threshold=opt.P_threshold, S_threshold=opt.S_threshold, detection_threshold=opt.P_threshold, parallelism=1)
+    picks,_ = model.classify(stream, batch_size=opt.batch_size, P_threshold=opt.P_threshold, S_threshold=opt.S_threshold, detection_threshold=opt.detection_threshold, parallelism=1)
     
 
     '''

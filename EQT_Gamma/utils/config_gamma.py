@@ -35,6 +35,19 @@ class ConfigGamma():
         config["dbscan_eps"] = self.opt.dbscan_eps  # seconds
         config["dbscan_min_samples"] = self.opt.dbscan_min_samples
 
+
+        ## Eikonal for 1D velocity model
+        #zz = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 110, 130, 150, 180, 210, 250]
+        #vp = [5.87, 5.43, 6.84, 6.93, 7.00, 6.89, 8.49, 7.65, 7.80, 8.44, 7.62, 8.75, 8.49, 8.49, 8.49, 8.49]
+        zz = [2.5, 10.50, 40, 70, 100, 200]
+        vp = [5.37, 5.98, 7.41, 8.48, 8.49, 8.50]
+        vp_vs_ratio = 1.73
+        vs = [v / vp_vs_ratio for v in vp]
+        #h = 0.3
+        h = 1
+        vel = {"z": zz, "p": vp, "s": vs}
+        config["eikonal"] = {"vel": vel, "h": h, "xlim": config["x(km)"], "ylim": config["y(km)"], "zlim": config["z(km)"]}
+
         # Filtering
         config["min_picks_per_eq"] = self.opt.min_picks_per_eq
         config["min_p_picks_per_eq"] = self.opt.min_p_picks_per_eq

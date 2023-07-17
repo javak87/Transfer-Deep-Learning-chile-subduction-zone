@@ -6,7 +6,7 @@
        dbscan_min_samples: 3                             
       file_path_generator: False                         
            initial_points: [1, 1, 1]                     
-              max_sigma11: 2                             
+              max_sigma11: 5                             
               max_sigma12: 1                             
               max_sigma22: 1                             
                    method: BGMM                          
